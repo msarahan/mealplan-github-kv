@@ -1881,6 +1881,7 @@ async function parsePdfRecipe(input){
   try{
     var resp=await fetch(WORKER_URL+'/parse-pdf',{method:'POST',body:fd});
     var data=await resp.json();
+    console.debug('[PDF import] raw worker response:', JSON.stringify(data, null, 2));
     if(data.error) throw new Error(data.error);
     var recipes=Array.isArray(data.recipes)?data.recipes:[data];
     var added=0, firstName='';
@@ -1890,6 +1891,7 @@ async function parsePdfRecipe(input){
     var doShare=shareChk&&shareChk.checked;
     recipes.forEach(function(recipe){
       if(!recipe||!recipe.name) return;
+      console.debug('[PDF import] recipe before save (servings='+recipe.servings+'):', JSON.stringify(recipe.ingredients, null, 2));
       recipe.id='r-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
       recipe.mealTypes=recipe.mealTypes||[];
       recipe.savedAt=Date.now();

@@ -126,6 +126,9 @@ export default {
 Return ONLY valid JSON, no markdown, no explanation.
 If you cannot find a clear recipe, return {"error":"No recipe found"}.
 
+CRITICAL: ingredients must be per 1 serving. If the recipe serves N people,
+divide every ingredient quantity by N. Set servings:1. Nutrition fields are per serving.
+
 JSON structure:
 {
   "name": "Recipe name",
@@ -135,8 +138,8 @@ JSON structure:
   "protein": 30,
   "carbs": 40,
   "fat": 15,
-  "servings": 4,
-  "ingredients": ["1 cup item","2 tbsp item"],
+  "servings": 1,
+  "ingredients": ["1 cup item per serving","2 tbsp item per serving"],
   "steps": ["Step 1.","Step 2."],
   "sourceUrl": "${body.url || ''}",
   "notes": "Any useful notes"
@@ -204,6 +207,9 @@ ${sourceText}`;
               text: `Extract all recipes from this PDF (up to 5). Return ONLY valid JSON.
 If no recipe is found, return {"error":"No recipe found"}.
 
+CRITICAL: ingredients must be per 1 serving. If the recipe says it serves N people,
+divide every ingredient quantity by N. Set servings:1. Set calories/protein/carbs/fat per serving.
+
 {
   "recipes": [
     {
@@ -214,8 +220,8 @@ If no recipe is found, return {"error":"No recipe found"}.
       "protein": 30,
       "carbs": 40,
       "fat": 15,
-      "servings": 4,
-      "ingredients": ["1 cup item"],
+      "servings": 1,
+      "ingredients": ["1 cup item per serving (already divided by serving count)"],
       "steps": ["Step 1."],
       "notes": ""
     }
