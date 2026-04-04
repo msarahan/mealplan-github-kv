@@ -1489,8 +1489,9 @@ function enrichGroceryWithSources(plan) {
           var match = gKey === rKey
             || (gKey.length >= 4 && rKey.length >= 4 && (rKey.indexOf(gKey) >= 0 || gKey.indexOf(rKey) >= 0));
           if (match && !found.some(function(f){ return f.meal === label; })) {
-            var qtyStr = (p.qty ? (fmtQty(p.qty) || String(p.qty)) : '') + (p.unit ? ' ' + p.unit : '');
-            found.push({ meal: label, qty: qtyStr.trim() || ing });
+            // Show qty+unit when both are known; otherwise show the full ingredient string
+            var qtyStr = (p.qty && p.unit) ? (fmtQty(p.qty) || String(p.qty)) + ' ' + p.unit : ing;
+            found.push({ meal: label, qty: qtyStr });
           }
         });
       });
