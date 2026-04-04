@@ -949,7 +949,7 @@ function scheduleGroceryRefresh(){
   if (groceryTimer) clearTimeout(groceryTimer);
   groceryTimer=setTimeout(function(){
     setGroceryStatus('spin','AI refresh...');
-    callClaude(buildGroceryPrompt(currentPlan),3000).then(function(r){
+    callClaude(buildGroceryPrompt(currentPlan),6000).then(function(r){
       if(r&&r.groceryList){ currentPlan.groceryList=normalizeGroceryQtys(r.groceryList); renderGrocery(); kvPut('/plan/'+householdCode,currentPlan); setGroceryStatus('ok','AI refreshed'); setTimeout(function(){setGroceryStatus('','');},2500); }
     }).catch(function(){ setGroceryStatus('',''); });
   },4000);
