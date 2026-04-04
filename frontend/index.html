@@ -706,6 +706,23 @@ function parseIng(str) {
   return {qty:qty,unit:unit,rest:rest.trim()};
 }
 function gcd(a,b){a=Math.abs(Math.round(a));b=Math.abs(Math.round(b));while(b){var t=b;b=a%b;a=t;}return a||1;}
+// Reduce any N/D or "N /D" fractions in a qty string, including improper fractions.
+// e.g. "2 /4 cup" → "1/2 cup", "2 /2 cup" → "1 cup", "6/4 cup" → "1 1/2 cup"
+function normalizeFractions(str){
+  if(!str) return str;
+  return String(str).replace(/(\d+)\s*\/\s*(\d+)/g, function(_,n,d){
+    var num=parseInt(n,10), den=parseInt(d,10), g=gcd(num,den);
+    num=num/g; den=den/g;
+    if(den===1) return num.toString();
+    if(num>den){ var w=Math.floor(num/den), r=num%den; return r?w+' '+r+'/'+den:w.toString(); }
+    return num+'/'+den;
+  });
+}
+function normalizeGroceryQtys(list){
+  if(!Array.isArray(list)) return list;
+  list.forEach(function(item){ if(item.qty) item.qty=normalizeFractions(item.qty); });
+  return list;
+}
 function fmtQty(n) {
   if (!n&&n!==0) return '';
   if (n<0) return '';
@@ -820,7 +837,7 @@ function scheduleGroceryRefresh(){
   groceryTimer=setTimeout(function(){
     setGroceryStatus('spin','AI refresh...');
     callClaude(buildGroceryPrompt(currentPlan),3000).then(function(r){
-      if(r&&r.groceryList){ currentPlan.groceryList=r.groceryList; renderGrocery(); kvPut('/plan/'+householdCode,currentPlan); setGroceryStatus('ok','AI refreshed'); setTimeout(function(){setGroceryStatus('','');},2500); }
+      if(r&&r.groceryList){ currentPlan.groceryList=normalizeGroceryQtys(r.groceryList); renderGrocery(); kvPut('/plan/'+householdCode,currentPlan); setGroceryStatus('ok','AI refreshed'); setTimeout(function(){setGroceryStatus('','');},2500); }
     }).catch(function(){ setGroceryStatus('',''); });
   },4000);
 }
@@ -1008,7 +1025,7 @@ async function generatePlan() {
     if(steps[1]) steps[1].classList.add('active');
     startProg(1);
     var grocery=await callClaude(buildGroceryPrompt(plan),3000);
-    plan.groceryList=grocery.groceryList;
+    plan.groceryList=normalizeGroceryQtys(grocery.groceryList);
     completeProg();
     plan.customItems=customItems;
     await pushPlan(plan);
