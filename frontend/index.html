@@ -931,6 +931,9 @@ function buildGroceryPrompt(plan) {
     +' AND Nuts & Seeds (walnuts, almonds, pine nuts, chia seeds, flaxseed, etc.):'
     +' show the TOTAL RECIPE QUANTITY needed in cooking units (e.g. "¾ cup", "3 tbsp", "2 tsp"),'
     +' NOT bag/bottle/container sizes. Users may have a partial bag and need to know the amount to check.'
+    +'\n- For Canned & Preserved items: show BOTH the number of cans/jars needed AND the equivalent dry/drained volume,'
+    +' e.g. "2 cans (~3 cups drained)" for chickpeas, "1 can (~1¾ cups)" for diced tomatoes.'
+    +' This helps users substitute from bulk or dried goods.'
     +'\n\nReturn ONLY valid JSON:'
     +'{"groceryList":[{"name":"Rolled oats","qty":"42 oz canister","category":"Grains & Bread"},{"name":"Olive oil","qty":"¾ cup","category":"Pantry"}]}'
     +'\nCategories: Produce, Protein, Dairy & Eggs, Grains & Bread, Pantry, Canned & Preserved, Nuts & Seeds, Herbs & Spices, Frozen, Other.';
