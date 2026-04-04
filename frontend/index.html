@@ -845,7 +845,7 @@ function parseIng(str) {
   // Normalise space-slash fractions: "6 /4" → "6/4", "1 / 2" → "1/2"
   str = str.replace(/(\d+)\s*\/\s*(\d+)/g, '$1/$2');
   // Match: optional whole/decimal, optional fraction, optional unit word, rest
-  var m = str.match(/^(\d+(?:\.\d+)?)?\s*(\d+\/\d+)?\s*([a-zA-Z]+)?\s*(.*)/);
+  var m = str.match(/^(\d+(?:\.\d+)?(?!\/))?\s*(\d+\/\d+)?\s*([a-zA-Z]+)?\s*(.*)/);
   if (!m) return {qty:null,unit:'',rest:str};
   var whole = m[1]?parseFloat(m[1]):0, frac=0;
   if (m[2]){ var p=m[2].split('/'); frac=parseInt(p[0],10)/parseInt(p[1],10); }
@@ -1666,6 +1666,7 @@ function renderRecipesTab(){
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.protein||'?')+'g</div><div class="mp-label">protein</div></div>'
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.carbs||'?')+'g</div><div class="mp-label">carbs</div></div>'
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.servings||1)+'</div><div class="mp-label">servings</div></div>'
         +'</div>';
       if(recipe.ingredients&&recipe.ingredients.length){
         html+='<div class="detail-label">Ingredients <span style="font-size:10px;font-weight:400;color:var(--ink-light)">per serving</span></div><ul class="ingredients-list">';
@@ -1715,6 +1716,7 @@ function renderRecipesTab(){
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.protein||'?')+'g</div><div class="mp-label">protein</div></div>'
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.carbs||'?')+'g</div><div class="mp-label">carbs</div></div>'
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.servings||1)+'</div><div class="mp-label">servings</div></div>'
         +'</div>';
       if(recipe.ingredients&&recipe.ingredients.length){
         html+='<div class="detail-label">Ingredients <span style="font-size:10px;font-weight:400;color:var(--ink-light)">per serving</span></div><ul class="ingredients-list">';
