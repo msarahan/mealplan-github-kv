@@ -7,6 +7,10 @@
 	"name": "mealplan-github-kv",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-27",
+	"workers_dev": false,
+	"routes": [
+		{ "pattern": "meals.fatcowshrine.com/*", "custom_domain": true }
+	],
 	"observability": {
 		"enabled": true
 	},
