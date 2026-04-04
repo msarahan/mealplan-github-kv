@@ -58,6 +58,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);mi
 .hh-error{font-size:12px;color:#c0392b;margin-top:6px;min-height:18px}
 /* Modal */
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center}
+#src-popover{position:fixed;background:white;border:1px solid var(--sand-dark);border-radius:var(--radius);box-shadow:0 4px 16px rgba(0,0,0,.12);padding:10px 13px;font-size:12px;font-family:'DM Sans',sans-serif;color:var(--ink);z-index:500;max-width:240px;display:none}
+#src-popover .sp-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--sand)}
+#src-popover .sp-row:last-child{border-bottom:none}
+#src-popover .sp-meal{color:var(--ink-light);flex:1}
+#src-popover .sp-qty{font-weight:500;white-space:nowrap}
+.gi-info{background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-light);padding:0 0 0 4px;line-height:1;flex-shrink:0}
+.gi-info:hover{color:var(--sage)}
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;font-family:'DM Sans',sans-serif;z-index:999;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
 .modal-bg.open{display:flex}
@@ -424,6 +431,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 </div>
 
 <div id="toast"></div>
+<div id="src-popover"></div>
 
 <!-- Household modal -->
 <div class="modal-bg" id="hh-modal">
@@ -516,6 +524,32 @@ async function kvGet(path) {
   }
   try { var v = localStorage.getItem('nkv' + path); return v ? JSON.parse(v) : null; } catch(e) { return null; }
 }
+var _srcPopoverBtn = null;
+function toggleSrcPopover(e, btn) {
+  e.stopPropagation();
+  var pop = document.getElementById('src-popover');
+  if (_srcPopoverBtn === btn && pop.style.display !== 'none') { hideSrcPopover(); return; }
+  _srcPopoverBtn = btn;
+  var sources = JSON.parse(btn.dataset.sources || '[]');
+  pop.innerHTML = sources.map(function(s){
+    return '<div class="sp-row"><span class="sp-meal">'+esc(s.meal)+'</span><span class="sp-qty">'+esc(s.qty)+'</span></div>';
+  }).join('');
+  pop.style.display = 'block';
+  var r = btn.getBoundingClientRect();
+  var pw = 240, ph = pop.offsetHeight || 120;
+  var left = Math.min(r.left, window.innerWidth - pw - 8);
+  var top = r.bottom + 6;
+  if (top + ph > window.innerHeight - 8) top = r.top - ph - 6;
+  pop.style.left = Math.max(8, left) + 'px';
+  pop.style.top = top + 'px';
+}
+function hideSrcPopover() {
+  var pop = document.getElementById('src-popover');
+  if (pop) pop.style.display = 'none';
+  _srcPopoverBtn = null;
+}
+document.addEventListener('click', hideSrcPopover);
+
 var _toastTimer = null;
 function showToast(msg) {
   var el = document.getElementById('toast');
@@ -1024,8 +1058,9 @@ function buildGroceryPrompt(plan) {
     +' show TOTAL RECIPE QUANTITY in cooking units (e.g. "1½ cups rolled oats", "¾ cup quinoa", "2 cups brown rice", "½ cup walnuts", "2 tsp cumin").'
     +' Users may have a partial bag open — they need the amount, not the store unit.'
     +'\n- Canned & Preserved: show can count AND drained volume, e.g. "2 cans (~3 cups drained)".'
+    +'\n\nEach item must include a "sources" array listing every meal that uses it and how much: {"meal":"Monday Dinner: Lemon Herb Salmon","qty":"6 oz"}.'
     +'\n\nReturn ONLY valid JSON:'
-    +'{"groceryList":[{"name":"Rolled oats","qty":"1½ cups","category":"Grains & Bread"},{"name":"Olive oil","qty":"¾ cup","category":"Pantry"},{"name":"Spinach","qty":"5 oz bag","category":"Produce"},{"name":"Walnuts","qty":"½ cup","category":"Nuts & Seeds"}]}'
+    +'{"groceryList":[{"name":"Rolled oats","qty":"1½ cups","category":"Grains & Bread","sources":[{"meal":"Monday Breakfast: Overnight Oats","qty":"½ cup"},{"meal":"Wednesday Breakfast: Granola Bowl","qty":"1 cup"}]},{"name":"Olive oil","qty":"¾ cup","category":"Pantry","sources":[{"meal":"Monday Dinner: Salmon","qty":"2 tbsp"},{"meal":"Tuesday Lunch: Salad","qty":"1 tbsp"}]}]}'
     +'\nCategories: Produce, Protein, Dairy & Eggs, Grains & Bread, Pantry, Canned & Preserved, Nuts & Seeds, Herbs & Spices, Frozen, Other.';
 }
 
@@ -1325,9 +1360,13 @@ function renderGrocery() {
     html+='<div class="grocery-section"><div class="grocery-cat-label"><span class="cat-dot" style="background:'+(CAT_DOT[c]||'#5a5a5a')+'"></span>'+esc(c)+'</div>';
     byCategory[c].forEach(function(item){
       var id='gi-'+ingKey(item.name), done=checkedItems.has(id);
+      var srcBtn='';
+      if(item.sources&&item.sources.length){
+        srcBtn='<button class="gi-info" data-sources="'+esc(JSON.stringify(item.sources))+'" onclick="toggleSrcPopover(event,this)" title="Used in...">ⓘ</button>';
+      }
       html+='<div class="grocery-item'+(done?' done':'')+'" data-item-id="'+id+'" onclick="toggleGroceryItem(this)">'
         +'<div class="gi-check">'+(done?'\u2713':'')+'</div>'
-        +'<span class="gi-name">'+esc(item.name)+'</span><span class="gi-qty">'+esc(item.qty||'')+'</span></div>';
+        +'<span class="gi-name">'+esc(item.name)+'</span><span class="gi-qty">'+esc(item.qty||'')+'</span>'+srcBtn+'</div>';
     });
     html+='</div>';
   });
