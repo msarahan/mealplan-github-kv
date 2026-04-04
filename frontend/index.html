@@ -693,6 +693,8 @@ function getSrv(t, d) { var c = householdServings[t]; if (!c) return 2; var v = 
 
 // ── Ingredient scaling ────────────────────────────────────────────────────────
 function parseIng(str) {
+  // Normalise improper fractions written with spaces around slash: "6 /4" → "6/4", "1 / 2" → "1/2"
+  str = str.replace(/^(\d+)\s*\/\s*(\d+)/, '$1/$2');
   var m = str.match(/^(\d+)?\s*(\d+\/\d+)?\s*([a-zA-Z]+)?\s*(.*)/);
   if (!m) return {qty:null,unit:'',rest:str};
   var whole = m[1]?parseInt(m[1],10):0, frac=0;
