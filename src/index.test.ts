@@ -195,6 +195,26 @@ describe('POST /parse-recipe', () => {
   });
 });
 
+// ── /parse-pdf ────────────────────────────────────────────────────────────────
+
+describe('POST /parse-pdf', () => {
+  it('returns 400 when no pdf field is provided', async () => {
+    const fd = new FormData();
+    const res = await SELF.fetch(`${BASE}/parse-pdf`, { method: 'POST', body: fd });
+    expect(res.status).toBe(400);
+    expect((await res.json() as any).error).toBeTruthy();
+  });
+
+  it('returns 400 when pdf exceeds 10 MB', async () => {
+    const big = new Uint8Array(11 * 1024 * 1024).fill(37); // 11 MB of '%' chars
+    const fd = new FormData();
+    fd.append('pdf', new File([big], 'big.pdf', { type: 'application/pdf' }));
+    const res = await SELF.fetch(`${BASE}/parse-pdf`, { method: 'POST', body: fd });
+    expect(res.status).toBe(400);
+    expect((await res.json() as any).error).toMatch(/too large/i);
+  });
+});
+
 // ── unknown routes ────────────────────────────────────────────────────────────
 
 describe('unknown routes', () => {

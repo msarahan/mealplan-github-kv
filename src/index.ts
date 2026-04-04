@@ -161,6 +161,79 @@ ${sourceText}`;
       }
     }
 
+    // ── POST /parse-pdf ──────────────────────────────────────────────────────────
+    // Body: multipart/form-data with field "pdf" (PDF file, max 10 MB)
+    // Uses Claude's native PDF document support to extract recipe(s)
+    if (request.method === 'POST' && path === '/parse-pdf') {
+      let formData: FormData;
+      try {
+        formData = await request.formData();
+      } catch {
+        return err('Expected multipart/form-data with a "pdf" field');
+      }
+      const file = formData.get('pdf') as File | null;
+      if (!file) return err('No PDF file provided');
+      if (file.size > 10 * 1024 * 1024) return err('PDF too large (max 10 MB)');
+
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+
+      const resp = await callAnthropic(env, {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 3000,
+        system: 'You are a JSON API. Output ONLY raw JSON, no markdown, no explanation.',
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+            },
+            {
+              type: 'text',
+              text: `Extract all recipes from this PDF (up to 5). Return ONLY valid JSON.
+If no recipe is found, return {"error":"No recipe found"}.
+
+{
+  "recipes": [
+    {
+      "name": "Recipe name",
+      "tags": ["tag1"],
+      "prepMins": 20,
+      "calories": 450,
+      "protein": 30,
+      "carbs": 40,
+      "fat": 15,
+      "servings": 4,
+      "ingredients": ["1 cup item"],
+      "steps": ["Step 1."],
+      "notes": ""
+    }
+  ]
+}
+
+Use US customary units. Estimate nutrition per serving if not stated.
+Tags examples: quick, vegetarian, vegan, make-ahead, high-protein, batch-prep.`,
+            },
+          ],
+        }],
+      });
+
+      const data = await resp.json() as any;
+      if (data.error) return json(data, resp.status);
+      const raw = (data.content as any[]).map(b => b.text || '').join('');
+      const start = raw.indexOf('{'), end = raw.lastIndexOf('}');
+      if (start === -1) return err('Could not parse recipe from PDF');
+      try {
+        return json(JSON.parse(raw.slice(start, end + 1)));
+      } catch {
+        return err('Invalid JSON from parser');
+      }
+    }
+
     return err('Not found', 404);
   },
 };
