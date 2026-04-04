@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Nourish - Smart Meal Planner</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#4a7c59">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Nourish">
+<link rel="apple-touch-icon" href="/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
@@ -44,12 +51,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);mi
 .hh-btn.primary{background:var(--sage);color:white}
 .hh-btn.secondary{background:var(--sand);color:var(--ink);border:1px solid var(--sand-dark)}
 .hh-input-row{display:flex;gap:8px;margin-top:14px}
-.hh-input-row input{flex:1;padding:10px 12px;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-size:14px;font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);outline:none;letter-spacing:.1em;text-transform:uppercase}
+.hh-input-row input{flex:1;padding:10px 12px;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-size:14px;font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);outline:none}
 .hh-input-row input:focus{border-color:var(--sage);background:var(--white)}
 .hh-input-row button{padding:10px 14px;border-radius:var(--radius-sm);border:none;background:var(--sage);color:white;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer}
 .hh-error{font-size:12px;color:#c0392b;margin-top:6px;min-height:18px}
 /* Modal */
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center}
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;font-family:'DM Sans',sans-serif;z-index:999;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1}
 .modal-bg.open{display:flex}
 .modal{background:var(--white);border-radius:var(--radius);padding:22px;width:300px;max-width:90vw}
 .modal h3{font-family:'Lora',serif;font-size:17px;color:var(--ink);margin-bottom:5px}
@@ -293,16 +302,18 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   <div class="hh-setup">
     <div style="font-size:44px;margin-bottom:10px">&#127807;</div>
     <h2>Welcome to Nourish</h2>
-    <p>Create a household to start planning, or join an existing one to share plans with your family.</p>
-    <button class="hh-btn primary" onclick="createHousehold()">&#10024; Create new household</button>
-    <button class="hh-btn secondary" onclick="showJoin()">&#128279; Join existing household</button>
-    <div id="join-area" style="display:none">
-      <div class="hh-input-row">
-        <input type="text" id="join-code-input" placeholder="ABCD12" maxlength="6" oninput="this.value=this.value.toUpperCase()">
-        <button onclick="joinHousehold()">Join</button>
-      </div>
-      <div class="hh-error" id="join-error"></div>
+    <p>Enter your family name to get started. Anyone who uses the same name shares your plan.</p>
+    <div class="hh-input-row">
+      <input type="text" id="family-name-input" placeholder="e.g. Sarahan" autocomplete="off"
+             list="family-datalist" onkeydown="if(event.key==='Enter')enterFamilyFromInput()">
+      <datalist id="family-datalist"></datalist>
+      <button onclick="enterFamilyFromInput()">Enter</button>
     </div>
+    <div class="hh-error" id="family-error"></div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-light);margin-top:12px;cursor:pointer">
+      <input type="checkbox" id="remember-family" checked> Remember my choice
+    </label>
+    <div id="family-manage" style="display:none;margin-top:18px;width:100%"></div>
   </div>
 </div>
 
@@ -407,16 +418,21 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   <div class="section" id="section-recipes">
     <div id="recipes-content"></div>
   </div>
+
+  <div style="text-align:center;padding:18px 0 10px;font-size:11px;color:var(--ink-light);font-family:'DM Sans',sans-serif">
+    __GIT_HASH__
+  </div>
 </div>
+
+<div id="toast"></div>
 
 <!-- Household modal -->
 <div class="modal-bg" id="hh-modal">
   <div class="modal">
     <h3>Your household</h3>
-    <p>Share this code with family so they can join your plan.</p>
-    <div class="modal-code" id="modal-code">----</div>
+    <p>Tell family to open Nourish and enter the name <strong id="modal-code">----</strong> to share your plan.</p>
     <div class="modal-actions">
-      <button onclick="copyCode()">&#128203; Copy</button>
+      <button onclick="switchFamily()">&#8635; Switch</button>
       <button onclick="leaveHousehold()" style="color:#c0392b">Leave</button>
       <button class="primary" onclick="closeHHModal()">Done</button>
     </div>
@@ -461,6 +477,7 @@ var CAT_ORDER = ['Produce','Protein','Dairy & Eggs','Grains & Bread','Pantry','C
 
 // ── State ─────────────────────────────────────────────────────────────────────
 var householdCode   = null;
+var householdName   = null;
 var activeDiets     = new Set(['climatarian']);
 var optPriority     = OPT_DEFS.map(function(o){return o.id;});
 var planDays        = 7;
@@ -500,9 +517,18 @@ async function kvGet(path) {
   }
   try { var v = localStorage.getItem('nkv' + path); return v ? JSON.parse(v) : null; } catch(e) { return null; }
 }
+var _toastTimer = null;
+function showToast(msg) {
+  var el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 3500);
+}
 async function kvPut(path, data) {
   if (WORKER_ON) {
-    fetch(WORKER_URL + path, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).catch(function(){});
+    fetch(WORKER_URL + path, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).catch(function(){ showToast('Could not save — check your connection.'); });
   } else {
     try { localStorage.setItem('nkv' + path, JSON.stringify(data)); } catch(e) {}
   }
@@ -554,35 +580,66 @@ async function pullSettings() {
 }
 
 // ── Household ─────────────────────────────────────────────────────────────────
-function randCode() {
-  var c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = '';
-  for (var i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
-  return s;
+function familyKey(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'family';
 }
-async function createHousehold() {
-  householdCode = randCode();
-  localStorage.setItem('nourish_code', householdCode);
-  enterApp();
+function getFamilies() { return JSON.parse(localStorage.getItem('nourish_families') || '[]'); }
+function saveFamilies(list) { localStorage.setItem('nourish_families', JSON.stringify(list)); }
+
+function renderFamilyList() {
+  var families = getFamilies();
+  var dl = document.getElementById('family-datalist');
+  if (dl) dl.innerHTML = families.map(function(f){ return '<option value="'+esc(f.name)+'">'; }).join('');
+  var mgr = document.getElementById('family-manage');
+  if (!mgr) return;
+  if (!families.length) { mgr.style.display = 'none'; return; }
+  mgr.style.display = '';
+  mgr.innerHTML = '<div style="font-size:11px;color:var(--ink-light);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Known families</div>'
+    + families.map(function(f, i){
+        return '<div style="display:flex;align-items:center;padding:7px 10px;background:var(--sand);border-radius:var(--radius-sm);margin-bottom:4px">'
+          + '<button style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--ink);text-align:left;padding:0;flex:1" onclick="loadFamily(\''+f.key+'\',\''+esc(f.name)+'\')">'+esc(f.name)+'</button>'
+          + '<button style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--ink-light);padding:2px 6px" onclick="removeFamily('+i+')" title="Remove">&#10005;</button>'
+          + '</div>';
+      }).join('');
 }
-function showJoin() { document.getElementById('join-area').style.display = ''; document.getElementById('join-code-input').focus(); }
-async function joinHousehold() {
-  var code = document.getElementById('join-code-input').value.trim().toUpperCase();
-  if (code.length < 4) { document.getElementById('join-error').textContent = 'Enter a valid code.'; return; }
-  householdCode = code;
-  localStorage.setItem('nourish_code', code);
+function removeFamily(idx) {
+  var families = getFamilies();
+  families.splice(idx, 1);
+  saveFamilies(families);
+  renderFamilyList();
+}
+function enterFamilyFromInput() {
+  var name = document.getElementById('family-name-input').value.trim();
+  if (!name) { document.getElementById('family-error').textContent = 'Enter a family name.'; return; }
+  document.getElementById('family-error').textContent = '';
+  var key = familyKey(name);
+  var families = getFamilies();
+  if (!families.find(function(f){ return f.key === key; })) {
+    families.unshift({name: name, key: key});
+    saveFamilies(families);
+  }
+  if (document.getElementById('remember-family').checked) {
+    localStorage.setItem('nourish_preferred', key);
+  }
+  loadFamily(key, name);
+}
+
+function loadFamily(key, name) {
+  householdCode = key;
+  householdName = name;
+  localStorage.setItem('nourish_code', key);
   enterApp();
-  await pullSettings();
-  await pullPlan();
-  await pullChecks();
-  await pullRecipes();
+  pullSettings().then(function(){ rebuildSrvTable(); buildOptList(); });
+  pullPlan();
+  pullChecks();
+  pullRecipes();
 }
 function enterApp() {
   document.getElementById('hh-screen').style.display = 'none';
   document.getElementById('app').style.display = '';
-  document.getElementById('hh-code-display').textContent = householdCode;
-  document.getElementById('modal-code').textContent = householdCode;
+  document.getElementById('hh-code-display').textContent = householdName || householdCode;
+  document.getElementById('modal-code').textContent = householdName || householdCode;
   document.getElementById('sync-dot').classList.add('live');
-  // Apply current state to UI (diet toggles are now in DOM)
   applyDietUI();
   buildOptList();
   rebuildSrvTable();
@@ -591,15 +648,17 @@ function enterApp() {
 }
 function showHHModal() { document.getElementById('hh-modal').classList.add('open'); }
 function closeHHModal() { document.getElementById('hh-modal').classList.remove('open'); }
-function copyCode() {
-  navigator.clipboard.writeText(householdCode).then(function(){
-    var m = document.getElementById('modal-code'), o = m.textContent;
-    m.textContent = 'Copied!'; setTimeout(function(){ m.textContent = o; }, 1500);
-  });
+function switchFamily() {
+  closeHHModal();
+  localStorage.removeItem('nourish_code');
+  localStorage.removeItem('nourish_preferred');
+  location.reload();
 }
 function leaveHousehold() {
-  if (!confirm('Leave this household?')) return;
-  localStorage.removeItem('nourish_code'); localStorage.removeItem('nourish_v3');
+  if (!confirm('Leave this household? Your local settings will be cleared.')) return;
+  localStorage.removeItem('nourish_code');
+  localStorage.removeItem('nourish_preferred');
+  localStorage.removeItem('nourish_v3');
   location.reload();
 }
 
@@ -868,7 +927,10 @@ async function pullChecks(){
 }
 function startSync(){
   if(syncInterval) clearInterval(syncInterval);
-  syncInterval=setInterval(function(){ if(document.getElementById('section-grocery').classList.contains('active')) pullChecks(); },8000);
+  syncInterval=setInterval(function(){
+    if(document.getElementById('section-grocery').classList.contains('active'))
+      pullChecks().catch(function(){ showToast('Sync failed — check your connection.'); });
+  },8000);
 }
 
 // ── Recipes KV ────────────────────────────────────────────────────────────────
@@ -1017,6 +1079,9 @@ function progHTML(step){
 
 // ── Generate ──────────────────────────────────────────────────────────────────
 async function generatePlan() {
+  if (currentPlan && currentPlan.days && currentPlan.days.length) {
+    if (!confirm('Replace the current plan? This cannot be undone.')) return;
+  }
   var btn=document.getElementById('gen-btn');
   btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Generating...';
   switchTab('plan'); mealServings={}; pinnedMeals={};
@@ -1256,6 +1321,7 @@ function renderGrocery() {
     +'<div class="export-bar">'
     +'<button class="export-btn primary" onclick="copyGrocery()">&#128203; Copy</button>'
     +'<button class="export-btn" onclick="shareGrocery()">&#8599; Share</button>'
+    +'<button class="export-btn" onclick="copyGroceryLink(this)" title="Copy a link that opens straight to this grocery list">&#128279; Link</button>'
     +'</div>';
   allCats.forEach(function(c){
     html+='<div class="grocery-section"><div class="grocery-cat-label"><span class="cat-dot" style="background:'+(CAT_DOT[c]||'#5a5a5a')+'"></span>'+esc(c)+'</div>';
@@ -1304,7 +1370,8 @@ function getGroceryText(){
   if(customItems.length){ text+='ADDED BY YOU\n'; customItems.forEach(function(item){ text+='  - '+item.name+(item.qty?' ('+item.qty+')':'')+'\n'; }); }
   return text;
 }
-function copyGrocery(){ var t=getGroceryText(); if(!t) return; navigator.clipboard.writeText(t).then(function(){ var b=document.querySelector('.export-btn.primary'); var o=b.innerHTML; b.innerHTML='&#10003; Copied!'; setTimeout(function(){b.innerHTML=o;},2000); }); }
+function copyGroceryLink(btn){ var url=location.origin+'/?family='+encodeURIComponent(householdCode)+'&tab=grocery'; navigator.clipboard.writeText(url).then(function(){ var o=btn.innerHTML; btn.innerHTML='&#10003; Copied!'; setTimeout(function(){btn.innerHTML=o;},2000); }); }
+function copyGrocery(){var t=getGroceryText(); if(!t) return; navigator.clipboard.writeText(t).then(function(){ var b=document.querySelector('.export-btn.primary'); var o=b.innerHTML; b.innerHTML='&#10003; Copied!'; setTimeout(function(){b.innerHTML=o;},2000); }); }
 async function shareGrocery(){ var t=getGroceryText(); if(!t) return; if(navigator.share){try{await navigator.share({title:'Grocery List',text:t});return;}catch(e){}} copyGrocery(); }
 
 // ── Recipes tab ───────────────────────────────────────────────────────────────
@@ -1607,15 +1674,18 @@ function unpinMeal(di,mi){
 // Load local settings first (before enterApp so state is ready)
 loadLocalSettings();
 
-var savedCode = localStorage.getItem('nourish_code');
-if (savedCode) {
-  householdCode = savedCode;
-  enterApp();
-  // Pull remote data asynchronously after UI is shown
-  pullSettings().then(function(){ rebuildSrvTable(); buildOptList(); });
-  pullPlan();
-  pullChecks();
-  pullRecipes();
+var _params     = new URLSearchParams(location.search);
+var _urlFamily  = _params.get('family');
+var _urlTab     = _params.get('tab');
+var _preferred  = localStorage.getItem('nourish_preferred');
+var _savedCode  = localStorage.getItem('nourish_code');
+var _bootKey    = _urlFamily || _preferred || _savedCode;
+if (_bootKey) {
+  var _f = getFamilies().find(function(f){ return f.key === _bootKey; });
+  loadFamily(_bootKey, _f ? _f.name : _bootKey);
+  if (_urlTab) switchTab(_urlTab);
+} else {
+  renderFamilyList();
 }
 </script>
 </body>
