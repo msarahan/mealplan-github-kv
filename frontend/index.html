@@ -238,9 +238,16 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 /* Picker modal */
 .picker-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;align-items:flex-end;justify-content:center}
 .picker-bg.open{display:flex}
-.picker-modal{background:var(--white);border-radius:var(--radius) var(--radius) 0 0;width:100%;max-width:430px;max-height:72vh;display:flex;flex-direction:column}
+.picker-modal{background:var(--white);border-radius:var(--radius) var(--radius) 0 0;width:100%;max-width:430px;max-height:80vh;display:flex;flex-direction:column}
 .picker-head{padding:14px 14px 9px;border-bottom:1px solid var(--sand-dark);flex-shrink:0}
-.picker-head h3{font-family:'Lora',serif;font-size:15px;color:var(--ink);margin-bottom:7px}
+.picker-head h3{font-family:'Lora',serif;font-size:15px;color:var(--ink);margin-bottom:10px}
+.picker-prompt-row{display:flex;gap:7px;margin-bottom:4px}
+.picker-prompt{flex:1;padding:8px 10px;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-size:13px;font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);outline:none}
+.picker-prompt:focus{border-color:var(--sage);background:var(--white)}
+.picker-gen-btn{padding:8px 13px;border-radius:var(--radius-sm);border:none;background:var(--sage);color:white;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+.picker-gen-btn:disabled{background:var(--sage-mid);cursor:not-allowed}
+.picker-divider{display:flex;align-items:center;gap:8px;margin:9px 0 4px;font-size:10px;color:var(--ink-light)}
+.picker-divider::before,.picker-divider::after{content:'';flex:1;height:1px;background:var(--sand-dark)}
 .picker-search{width:100%;padding:7px 10px;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-size:13px;font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);outline:none}
 .picker-search:focus{border-color:var(--sage)}
 .picker-list{overflow-y:auto;flex:1;padding:6px}
@@ -396,12 +403,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   </div>
 </div>
 
-<!-- Recipe picker modal -->
+<!-- Swap dialog -->
 <div class="picker-bg" id="picker-bg">
   <div class="picker-modal">
     <div class="picker-head">
-      <h3>Choose a saved recipe</h3>
-      <input class="picker-search" id="picker-search" type="text" placeholder="Search..."
+      <h3>&#x1F504; Swap meal</h3>
+      <div class="picker-prompt-row">
+        <input class="picker-prompt" id="picker-prompt" type="text" placeholder="What are you in the mood for? (optional)">
+        <button class="picker-gen-btn" id="picker-gen-btn" onclick="swapFromDialog()">Generate</button>
+      </div>
+      <div class="picker-divider">or choose a saved recipe</div>
+      <input class="picker-search" id="picker-search" type="text" placeholder="Search saved recipes..."
         oninput="renderPickerList(this.value)">
     </div>
     <div class="picker-list" id="picker-list"></div>
@@ -1112,8 +1124,7 @@ function buildMealCardHTML(di, mi, meal) {
   if(isPinned){
     html+='<button class="meal-act-btn sage" onclick="unpinMeal('+di+','+mi+')">&#x1F4CC; Unpin</button>';
   } else {
-    html+='<button class="meal-act-btn" onclick="swapMeal('+di+','+mi+',this)">&#x1F504; Swap</button>';
-    html+='<button class="meal-act-btn sage" onclick="openPicker('+di+','+mi+')">&#x1F4CC; Pin saved</button>';
+    html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+')">&#x1F504; Swap</button>';
   }
   if(!isPinned&&!meal.isLeftover){
     html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
@@ -1149,13 +1160,16 @@ function renderPlan(plan) {
 }
 
 // ── Swap ──────────────────────────────────────────────────────────────────────
-async function swapMeal(di,mi,btn){
-  btn.disabled=true; btn.textContent='Finding...';
+async function swapMeal(di,mi,btn,customPrompt){
+  if(btn){ btn.disabled=true; btn.textContent='Finding...'; }
   var meal=currentPlan.days[di].meals[mi];
   var dl=Array.from(activeDiets).join(' or ');
-  var prompt='Suggest ONE alternative '+meal.type+' recipe replacing "'+meal.name+'" for a '+dl+' diet.'
-    +' Target ~'+meal.calories+' kcal, ~'+meal.protein+'g protein per serving. US units.'
-    +' Return ONLY valid JSON: {"name":"Name","tags":["tag"],"prepMins":15,"calories":'+(meal.calories||400)
+  var prompt=customPrompt
+    ? 'Suggest ONE '+meal.type+' recipe for a '+dl+' diet matching this request: "'+customPrompt+'".'
+      +' Target ~'+meal.calories+' kcal, ~'+meal.protein+'g protein per serving. US units.'
+    : 'Suggest ONE alternative '+meal.type+' recipe replacing "'+meal.name+'" for a '+dl+' diet.'
+      +' Target ~'+meal.calories+' kcal, ~'+meal.protein+'g protein per serving. US units.';
+  prompt+=' Return ONLY valid JSON: {"name":"Name","tags":["tag"],"prepMins":15,"calories":'+(meal.calories||400)
     +',"protein":'+(meal.protein||20)+',"carbs":'+(meal.carbs||40)
     +',"ingredients":["1 cup item"],"steps":["Step 1."],"prepNote":null,"batchNote":null}';
   try{
@@ -1165,7 +1179,7 @@ async function swapMeal(di,mi,btn){
     var tmp=document.createElement('div'); tmp.innerHTML=buildMealCardHTML(di,mi,data);
     card.parentNode.replaceChild(tmp.firstChild,card);
     pushPlan(currentPlan);
-  }catch(e){ btn.textContent='Failed'; btn.disabled=false; }
+  }catch(e){ if(btn){ btn.textContent='Failed'; btn.disabled=false; } }
 }
 
 // ── Grocery render ────────────────────────────────────────────────────────────
@@ -1354,11 +1368,23 @@ async function parseRecipe(){
 // ── Recipe picker (pin to slot) ───────────────────────────────────────────────
 function openPicker(di,mi){
   pickerTarget={di:di,mi:mi};
+  var p=document.getElementById('picker-prompt'); if(p) p.value='';
+  var s=document.getElementById('picker-search'); if(s) s.value='';
   renderPickerList('');
   document.getElementById('picker-bg').classList.add('open');
-  setTimeout(function(){var s=document.getElementById('picker-search');if(s)s.focus();},100);
+  setTimeout(function(){var p=document.getElementById('picker-prompt');if(p)p.focus();},100);
 }
 function closePicker(){ document.getElementById('picker-bg').classList.remove('open'); pickerTarget=null; }
+
+async function swapFromDialog(){
+  if(!pickerTarget) return;
+  var di=pickerTarget.di, mi=pickerTarget.mi;
+  var prompt=document.getElementById('picker-prompt').value.trim();
+  var btn=document.getElementById('picker-gen-btn');
+  closePicker();
+  var cardBtn=document.querySelector('#meal-'+di+'-'+mi+' .meal-act-btn');
+  await swapMeal(di,mi,cardBtn,prompt);
+}
 document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('picker-bg').addEventListener('click',function(e){if(e.target===this)closePicker();});
 });
