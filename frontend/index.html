@@ -240,6 +240,15 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .recipe-add-btn{padding:8px 12px;border-radius:var(--radius-sm);border:none;background:var(--sage);color:white;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;align-self:flex-start}
 .recipe-add-btn:disabled{background:var(--sage-mid);cursor:not-allowed}
 .recipe-pdf-btn{display:inline-flex;align-items:center;gap:5px;background:var(--sand-dark);color:var(--ink)}
+.recipe-share-row{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink);padding:3px 0;cursor:pointer;user-select:none}
+.recipe-share-row input{cursor:pointer}
+.recipe-notes-view{margin-top:9px;font-size:12px;color:var(--ink-light);font-style:italic;border-left:2px solid var(--sand-dark);padding-left:9px;white-space:pre-wrap}
+.recipe-share-btn{margin-top:10px;padding:5px 11px;border-radius:var(--radius-sm);border:1px solid var(--sage);background:transparent;color:var(--sage-dark);font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer}
+.recipe-shared-badge{display:inline-block;margin-top:10px;font-size:11px;color:var(--sage-dark);font-weight:500}
+.recipe-save-global-btn{padding:5px 10px;border-radius:var(--radius-sm);border:none;background:var(--sage);color:#fff;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;white-space:nowrap}
+.recipe-in-lib{font-size:11px;color:var(--ink-light);padding:5px 10px;white-space:nowrap}
+.recipe-contributor{font-size:11px;color:var(--sage-dark);margin-top:1px}
+.community-section-hdr{font-family:'Lora',serif;font-size:14px;color:var(--ink);margin:20px 0 8px;padding-top:14px;border-top:1.5px solid var(--sand-dark);display:flex;align-items:center;gap:7px}
 .parse-status{font-size:11px;color:var(--ink-light);min-height:16px}
 .recipe-filter-row{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
 .filter-chip{padding:4px 10px;border-radius:20px;border:1px solid var(--sand-dark);background:var(--sand);font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;color:var(--ink-mid)}
@@ -509,6 +518,7 @@ var leftoverLunches = 0;
 var checkedItems    = new Set();
 var customItems     = [];
 var savedRecipes    = [];
+var globalRecipes   = [];
 var planHistory     = [];
 var pinnedMeals     = {};
 var recipeFilter    = 'all';
@@ -708,6 +718,7 @@ function loadFamily(key, name) {
   pullChecks();
   pullRecipes();
   pullHistory();
+  pullGlobalRecipes();
 }
 function enterApp() {
   document.getElementById('hh-screen').style.display = 'none';
@@ -1547,6 +1558,8 @@ function renderRecipesTab(){
     +'<label class="recipe-add-btn recipe-pdf-btn">&#128196; Import from PDF<input type="file" id="recipe-pdf-input" accept=".pdf,application/pdf" style="display:none" onchange="parsePdfRecipe(this)"></label>'
     +'</div>'
     +'<textarea class="recipe-add-input tall" id="recipe-text-input" placeholder="...or paste recipe text here"></textarea>'
+    +'<input class="recipe-add-input" id="recipe-notes-input" placeholder="Notes: where it came from, tips, story\u2026">'
+    +'<label class="recipe-share-row"><input type="checkbox" id="recipe-share-chk"> Share to Community</label>'
     +'<div class="parse-status" id="parse-status"></div>'
     +'</div>'
     +'<div class="recipe-filter-row">'
@@ -1604,6 +1617,8 @@ function renderRecipesTab(){
       });
       html+='</div>'
         +'<button class="recipe-edit-add" onclick="recipeEditAddStep(\''+rid+'\')">&#43; step</button>'
+        +'<div class="detail-label" style="margin-top:10px">Notes</div>'
+        +'<textarea id="rc-edit-notes-'+rid+'" class="recipe-add-input tall" style="min-height:52px" placeholder="Where it came from, tips, story\u2026">'+esc(recipe.notes||'')+'</textarea>'
         +'<div class="recipe-edit-actions">'
         +'<button class="recipe-edit-cancel" onclick="cancelEditRecipe(\''+rid+'\')">Cancel</button>'
         +'<button class="recipe-edit-save" onclick="saveEditedRecipe(\''+rid+'\')">Save</button>'
@@ -1632,10 +1647,59 @@ function renderRecipesTab(){
         recipe.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
         html+='</ol>';
       }
+      if(recipe.notes) html+='<div class="recipe-notes-view">'+esc(recipe.notes)+'</div>';
       if(recipe.sourceUrl) html+='<div style="margin-top:8px;font-size:11px;color:var(--ink-light)">Source: <a href="'+esc(recipe.sourceUrl)+'" target="_blank" style="color:var(--sage-dark)">'+esc(recipe.sourceUrl.replace(/^https?:\/\//,'').split('/')[0])+'</a></div>';
+      var alreadyShared=globalRecipes.some(function(g){return g.id===recipe.id;});
+      if(alreadyShared) html+='<span class="recipe-shared-badge">&#10003; In community</span>';
+      else html+='<button class="recipe-share-btn" onclick="shareRecipeToGlobal(\''+recipe.id+'\');event.stopPropagation()">Share to Community</button>';
     }
     html+='</div></div>';
   });
+  // ── Community section ──────────────────────────────────────────────────────
+  var gFiltered=globalRecipes.filter(function(r){ if(!q) return true; return r.tags&&r.tags.some(function(t){return t.toLowerCase().indexOf(q)>=0;}); });
+  html+='<div class="community-section-hdr">&#127758; Community Recipes'
+    +(gFiltered.length?'<span style="font-size:11px;font-family:\'DM Sans\',sans-serif;color:var(--ink-light);font-weight:400">('+gFiltered.length+')</span>':'')
+    +'</div>';
+  if(gFiltered.length===0){
+    html+='<div style="font-size:12px;color:var(--ink-light);padding:8px 0 4px">No community recipes yet. Be the first to share!</div>';
+  } else {
+    gFiltered.forEach(function(recipe){
+      var gmeta=[recipe.prepMins?recipe.prepMins+' min':null,recipe.calories?recipe.calories+' kcal/srv':null].filter(Boolean).join(' · ');
+      var alreadyOwned=savedRecipes.some(function(r){return r.name.toLowerCase()===recipe.name.toLowerCase();});
+      var isOurs=recipe.sharedBy&&recipe.sharedBy.code===householdCode;
+      html+='<div class="recipe-card" id="gc-'+recipe.id+'">'
+        +'<div class="recipe-card-header" onclick="toggleGlobalCard(\''+recipe.id+'\')">'
+        +'<div class="recipe-card-info">'
+        +'<div class="recipe-card-name">'+esc(recipe.name)+'</div>'
+        +'<div class="recipe-contributor">by '+esc(recipe.sharedBy?recipe.sharedBy.name:householdCode)+'</div>'
+        +(gmeta?'<div class="recipe-card-meta">'+esc(gmeta)+'</div>':'')
+        +'</div>';
+      if(isOurs) html+='<button class="recipe-del-btn" onclick="unshareRecipe(\''+recipe.id+'\');event.stopPropagation()">Unshare</button>';
+      if(alreadyOwned) html+='<span class="recipe-in-lib">In My Library</span>';
+      else html+='<button class="recipe-save-global-btn" onclick="addGlobalToLibrary(\''+recipe.id+'\');event.stopPropagation()">+ Add</button>';
+      html+='<span class="recipe-expand">&#8964;</span></div><div class="recipe-detail">';
+      if(recipe.tags&&recipe.tags.length){ html+='<div class="meal-tags" style="margin-top:9px">'; recipe.tags.forEach(function(t){html+='<span class="meal-tag">'+esc(t)+'</span>';}); html+='</div>'; }
+      html+='<div class="macro-bar" style="margin-top:7px">'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.calories||'?')+'</div><div class="mp-label">kcal/srv</div></div>'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.protein||'?')+'g</div><div class="mp-label">protein</div></div>'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.carbs||'?')+'g</div><div class="mp-label">carbs</div></div>'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
+        +'</div>';
+      if(recipe.ingredients&&recipe.ingredients.length){
+        html+='<div class="detail-label">Ingredients <span style="font-size:10px;font-weight:400;color:var(--ink-light)">per serving</span></div><ul class="ingredients-list">';
+        scaleIngs(recipe.ingredients,recipe.servings||1).forEach(function(i){html+='<li>'+esc(i)+'</li>';});
+        html+='</ul>';
+      }
+      if(recipe.steps&&recipe.steps.length){
+        html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
+        recipe.steps.forEach(function(s,si){html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>';});
+        html+='</ol>';
+      }
+      if(recipe.notes) html+='<div class="recipe-notes-view">'+esc(recipe.notes)+'</div>';
+      if(recipe.sourceUrl) html+='<div style="margin-top:8px;font-size:11px;color:var(--ink-light)">Source: <a href="'+esc(recipe.sourceUrl)+'" target="_blank" style="color:var(--sage-dark)">'+esc(recipe.sourceUrl.replace(/^https?:\/\//,'').split('/')[0])+'</a></div>';
+      html+='</div></div>';
+    });
+  }
   el.innerHTML=html;
 }
 
@@ -1690,6 +1754,8 @@ function saveEditedRecipe(id){
   recipe.ingredients=ings;
   recipe.steps=steps;
   recipe.servings=state.servings;
+  var notesTA=document.getElementById('rc-edit-notes-'+id);
+  recipe.notes=notesTA?notesTA.value.trim():(recipe.notes||'');
   delete recipeEditState[id];
   pushRecipes(); renderRecipesTab();
   var el=document.getElementById('rc-'+id); if(el) el.classList.add('open');
@@ -1760,9 +1826,14 @@ async function parseRecipe(){
       recipe=await callClaude(extractPrompt,1200);
     }
     recipe.id='r-'+Date.now(); recipe.mealTypes=recipe.mealTypes||[]; recipe.savedAt=Date.now(); recipe.sourceUrl=recipe.sourceUrl||urlVal||'';
+    var notesEl=document.getElementById('recipe-notes-input');
+    recipe.notes=(notesEl&&notesEl.value.trim())||recipe.notes||'';
     if(savedRecipes.some(function(r){return r.name.toLowerCase()===recipe.name.toLowerCase();})){if(statusEl)statusEl.textContent='"'+recipe.name+'" is already saved.';btn.disabled=false;return;}
-    savedRecipes.unshift(recipe); pushRecipes(); renderRecipesTab();
-    if(urlEl)urlEl.value=''; if(txtEl)txtEl.value='';
+    savedRecipes.unshift(recipe); pushRecipes();
+    var shareChk=document.getElementById('recipe-share-chk');
+    if(shareChk&&shareChk.checked){ shareRecipeToGlobal(recipe); shareChk.checked=false; }
+    renderRecipesTab();
+    if(urlEl)urlEl.value=''; if(txtEl)txtEl.value=''; if(notesEl)notesEl.value='';
     if(statusEl)statusEl.textContent='Added: '+recipe.name;
   }catch(e){if(statusEl)statusEl.textContent='Error: '+e.message;}
   btn.disabled=false;
@@ -1782,18 +1853,25 @@ async function parsePdfRecipe(input){
     if(data.error) throw new Error(data.error);
     var recipes=Array.isArray(data.recipes)?data.recipes:[data];
     var added=0, firstName='';
+    var notesEl=document.getElementById('recipe-notes-input');
+    var notesVal=notesEl?notesEl.value.trim():'';
+    var shareChk=document.getElementById('recipe-share-chk');
+    var doShare=shareChk&&shareChk.checked;
     recipes.forEach(function(recipe){
       if(!recipe||!recipe.name) return;
       recipe.id='r-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
       recipe.mealTypes=recipe.mealTypes||[];
       recipe.savedAt=Date.now();
       recipe.sourceUrl=recipe.sourceUrl||'';
+      recipe.notes=notesVal||recipe.notes||'';
       if(savedRecipes.some(function(r){return r.name.toLowerCase()===recipe.name.toLowerCase();})) return;
       if(!firstName) firstName=recipe.name;
       savedRecipes.unshift(recipe);
+      if(doShare) shareRecipeToGlobal(recipe);
       added++;
     });
     pushRecipes(); renderRecipesTab();
+    if(notesEl) notesEl.value=''; if(shareChk) shareChk.checked=false;
     input.value='';
     if(statusEl)statusEl.textContent=added===0?'No new recipes (already saved?)':(added===1?'Added: '+firstName:'Added '+added+' recipes from PDF');
   }catch(e){
@@ -1801,6 +1879,35 @@ async function parsePdfRecipe(input){
     input.value='';
   }
 }
+
+// ── Global / community recipes ────────────────────────────────────────────────
+function pullGlobalRecipes(){
+  kvGet('/globalrecipes').then(function(r){ if(Array.isArray(r)){globalRecipes=r;renderRecipesTab();} }).catch(function(){});
+}
+function pushGlobalRecipes(){
+  kvPut('/globalrecipes',globalRecipes);
+}
+function shareRecipeToGlobal(ridOrObj){
+  var recipe=typeof ridOrObj==='string'?savedRecipes.find(function(r){return r.id===ridOrObj;}):ridOrObj;
+  if(!recipe) return;
+  var shared=Object.assign({},recipe);
+  shared.sharedBy={code:householdCode,name:householdName||householdCode};
+  var idx=globalRecipes.findIndex(function(r){return r.id===shared.id;});
+  if(idx>=0) globalRecipes[idx]=shared; else globalRecipes.unshift(shared);
+  pushGlobalRecipes(); renderRecipesTab();
+}
+function unshareRecipe(rid){
+  globalRecipes=globalRecipes.filter(function(r){return r.id!==rid;});
+  pushGlobalRecipes(); renderRecipesTab();
+}
+function addGlobalToLibrary(gid){
+  var recipe=globalRecipes.find(function(r){return r.id===gid;}); if(!recipe) return;
+  if(savedRecipes.some(function(r){return r.name.toLowerCase()===recipe.name.toLowerCase();})) return;
+  var copy=Object.assign({},recipe);
+  copy.id='r-'+Date.now(); copy.savedAt=Date.now();
+  savedRecipes.unshift(copy); pushRecipes(); renderRecipesTab();
+}
+function toggleGlobalCard(id){ var el=document.getElementById('gc-'+id); if(el) el.classList.toggle('open'); }
 
 // ── Recipe picker (pin to slot) ───────────────────────────────────────────────
 function openPicker(di,mi){

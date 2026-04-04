@@ -195,6 +195,38 @@ describe('POST /parse-recipe', () => {
   });
 });
 
+// ── /globalrecipes ────────────────────────────────────────────────────────────
+
+describe('GET /globalrecipes', () => {
+  it('returns empty array when no global recipes exist', async () => {
+    const res = await SELF.fetch(`${BASE}/globalrecipes`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('returns stored global recipes', async () => {
+    const recipes = [{ id: 'r-1', name: 'Shared Pasta', sharedBy: { code: 'ABC123', name: 'Test Family' } }];
+    await env.NOURISH_KV.put('recipes:global', JSON.stringify(recipes));
+    const res = await SELF.fetch(`${BASE}/globalrecipes`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(recipes);
+  });
+});
+
+describe('PUT /globalrecipes', () => {
+  it('stores global recipes and returns ok', async () => {
+    const recipes = [{ id: 'r-2', name: 'Community Curry', sharedBy: { code: 'XYZ789', name: 'Curry House' } }];
+    const res = await SELF.fetch(`${BASE}/globalrecipes`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recipes),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(JSON.parse((await env.NOURISH_KV.get('recipes:global'))!)).toEqual(recipes);
+  });
+});
+
 // ── /parse-pdf ────────────────────────────────────────────────────────────────
 
 describe('POST /parse-pdf', () => {
