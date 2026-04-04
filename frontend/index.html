@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Nourish - Smart Meal Planner</title>
+<script src="/version.js"></script>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#4a7c59">
 <meta name="mobile-web-app-capable" content="yes">
@@ -419,9 +420,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
     <div id="recipes-content"></div>
   </div>
 
-  <div style="text-align:center;padding:18px 0 10px;font-size:11px;color:var(--ink-light);font-family:'DM Sans',sans-serif">
-    __GIT_HASH__
-  </div>
+  <div style="text-align:center;padding:18px 0 10px;font-size:11px;color:var(--ink-light);font-family:'DM Sans',sans-serif" id="app-version-footer"></div>
 </div>
 
 <div id="toast"></div>
@@ -1671,6 +1670,8 @@ function unpinMeal(di,mi){
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+(function(){ var el=document.getElementById('app-version-footer'); if(el) el.textContent=window.__VERSION__||''; })();
+
 // Load local settings first (before enterApp so state is ready)
 loadLocalSettings();
 
