@@ -595,8 +595,25 @@ function settingsObj() {
 }
 function saveSettings() {
   var s = settingsObj();
-  try { localStorage.setItem('nourish_v3', JSON.stringify(s)); } catch(e) {}
-  if (householdCode) kvPut('/settings/' + householdCode, s);
+  if (householdCode) {
+    try { localStorage.setItem('nourish_s_' + householdCode, JSON.stringify(s)); } catch(e) {}
+    kvPut('/settings/' + householdCode, s);
+  }
+}
+function resetSettings() {
+  activeDiets = new Set(['climatarian']);
+  optPriority = OPT_DEFS.map(function(o){ return o.id; });
+  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; customItems = [];
+  householdServings = { breakfast:[2,2,2,2,2,4,4], lunch:[2,2,2,2,2,4,4], dinner:[4,4,4,4,4,4,4], snack:[2,2,2,2,2,2,2] };
+  document.getElementById('days-slider').value = 7;
+  document.getElementById('days-val').textContent = 7;
+  document.getElementById('meals-slider').value = 3;
+  document.getElementById('meals-val').textContent = 3;
+  document.getElementById('cal-target').value = 2000;
+  document.getElementById('protein-target').value = 120;
+  document.getElementById('carbs-target').value = 220;
+  document.getElementById('leftover-count').value = 0;
+  applyDietUI(); buildOptList(); rebuildSrvTable();
 }
 function applySettings(s) {
   if (!s) return;
@@ -619,8 +636,13 @@ function applySettings(s) {
   buildOptList();
   rebuildSrvTable();
 }
-function loadLocalSettings() {
-  try { var raw = localStorage.getItem('nourish_v3'); if (raw) applySettings(JSON.parse(raw)); } catch(e) {}
+function loadLocalSettings(code) {
+  try {
+    // Per-household key; fall back to legacy global key for migration
+    var raw = code ? localStorage.getItem('nourish_s_' + code) : null;
+    if (!raw) raw = localStorage.getItem('nourish_v3');
+    if (raw) applySettings(JSON.parse(raw));
+  } catch(e) {}
 }
 async function pullSettings() {
   try { applySettings(await kvGet('/settings/' + householdCode)); } catch(e) {}
@@ -675,6 +697,8 @@ function loadFamily(key, name) {
   householdCode = key;
   householdName = name;
   localStorage.setItem('nourish_code', key);
+  resetSettings();           // clear any previous household's values
+  loadLocalSettings(key);    // apply this household's cached settings immediately
   enterApp();
   pullSettings().then(function(){ rebuildSrvTable(); buildOptList(); });
   pullPlan();
@@ -1838,15 +1862,16 @@ function unpinMeal(di,mi){
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (function(){ var el=document.getElementById('app-version-footer'); if(el){ var v=window.__VERSION__||''; el.textContent=(/^__/).test(v)?'':v; } })();
 
-// Load local settings first (before enterApp so state is ready)
-loadLocalSettings();
-
 var _params     = new URLSearchParams(location.search);
 var _urlFamily  = _params.get('family');
 var _urlTab     = _params.get('tab');
 var _preferred  = localStorage.getItem('nourish_preferred');
 var _savedCode  = localStorage.getItem('nourish_code');
 var _bootKey    = _urlFamily || _preferred || _savedCode;
+
+// Load per-household settings immediately so UI is ready before KV responds
+loadLocalSettings(_bootKey);
+
 if (_bootKey) {
   var _f = getFamilies().find(function(f){ return f.key === _bootKey; });
   loadFamily(_bootKey, _f ? _f.name : _bootKey);
