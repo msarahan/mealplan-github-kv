@@ -927,9 +927,10 @@ function buildGroceryPrompt(plan) {
     +' butter (1 lb box), shredded cheese (8 oz bag),'
     +' canned tomatoes (14.5 oz), broth (32 oz carton), pasta (1 lb), rice (2 lb bag), oats (42 oz canister).'
     +' List full package even if only part is needed.'
-    +'\n- For Pantry items (oils, vinegars, syrups, sauces, condiments, spices, nutritional yeast, etc.):'
+    +'\n- For Pantry items (oils, vinegars, syrups, sauces, condiments, spices, nutritional yeast, etc.)'
+    +' AND Nuts & Seeds (walnuts, almonds, pine nuts, chia seeds, flaxseed, etc.):'
     +' show the TOTAL RECIPE QUANTITY needed in cooking units (e.g. "¾ cup", "3 tbsp", "2 tsp"),'
-    +' NOT bottle/container sizes. Users may have a partial bottle and need to know the amount to check.'
+    +' NOT bag/bottle/container sizes. Users may have a partial bag and need to know the amount to check.'
     +'\n\nReturn ONLY valid JSON:'
     +'{"groceryList":[{"name":"Rolled oats","qty":"42 oz canister","category":"Grains & Bread"},{"name":"Olive oil","qty":"¾ cup","category":"Pantry"}]}'
     +'\nCategories: Produce, Protein, Dairy & Eggs, Grains & Bread, Pantry, Canned & Preserved, Nuts & Seeds, Herbs & Spices, Frozen, Other.';
