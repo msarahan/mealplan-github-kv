@@ -157,6 +157,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 /* Day/meal */
 .plan-day{margin-bottom:16px}
 .day-name{font-family:'Lora',serif;font-size:15px;color:var(--ink);margin-bottom:7px}
+.today-badge{font-family:'DM Sans',sans-serif;font-size:10px;font-weight:600;background:var(--sage);color:#fff;border-radius:99px;padding:1px 7px;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
 .meal-card{background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--sand-dark);overflow:hidden;margin-bottom:6px}
 .meal-card.pinned{border-color:var(--sage);border-width:1.5px}
 .meal-card.leftover-card{background:var(--sand);border-style:dashed}
@@ -339,14 +340,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   </div>
 
   <nav class="nav">
-    <button class="nav-btn active" onclick="switchTab('configure')" id="nav-configure"><span class="nav-icon">&#9881;&#65039;</span>Configure</button>
-    <button class="nav-btn" onclick="switchTab('plan')" id="nav-plan"><span class="nav-icon">&#128197;</span>Plan</button>
+    <button class="nav-btn active" onclick="switchTab('plan')" id="nav-plan"><span class="nav-icon">&#128197;</span>Plan</button>
     <button class="nav-btn" onclick="switchTab('grocery')" id="nav-grocery"><span class="nav-icon">&#128722;</span>Grocery</button>
     <button class="nav-btn" onclick="switchTab('recipes')" id="nav-recipes"><span class="nav-icon">&#128218;</span>Recipes</button>
+    <button class="nav-btn" onclick="switchTab('configure')" id="nav-configure"><span class="nav-icon">&#9881;&#65039;</span>Configure</button>
   </nav>
 
   <!-- Configure -->
-  <div class="section active" id="section-configure">
+  <div class="section" id="section-configure">
     <div class="card">
       <div class="card-title">&#127807; Dietary approach</div>
       <div class="diet-grid" id="diet-grid">
@@ -411,7 +412,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   </div>
 
   <!-- Plan -->
-  <div class="section" id="section-plan">
+  <div class="section active" id="section-plan">
     <div id="plan-content">
       <div class="empty-state"><div class="es-icon">&#127807;</div><div class="es-title">No plan yet</div><div class="es-sub">Configure and tap Generate.</div></div>
     </div>
@@ -697,9 +698,11 @@ function loadFamily(key, name) {
   householdCode = key;
   householdName = name;
   localStorage.setItem('nourish_code', key);
+  var isNew = !localStorage.getItem('nourish_s_' + key) && !localStorage.getItem('nourish_v3');
   resetSettings();           // clear any previous household's values
   loadLocalSettings(key);    // apply this household's cached settings immediately
   enterApp();
+  if (isNew) switchTab('configure');
   pullSettings().then(function(){ rebuildSrvTable(); buildOptList(); });
   pullPlan();
   pullChecks();
@@ -1330,7 +1333,7 @@ async function backfillPlan() {
 }
 
 // ── Render plan ───────────────────────────────────────────────────────────────
-function buildMealCardHTML(di, mi, meal) {
+function buildMealCardHTML(di, mi, meal, startOpen) {
   if (meal.isLeftover) {
     return '<div class="meal-card leftover-card" id="meal-'+di+'-'+mi+'">'
       +'<div class="meal-card-header"><div class="meal-card-left">'
@@ -1346,7 +1349,7 @@ function buildMealCardHTML(di, mi, meal) {
   if(meal.ingredients&&!meal._baseIngs) meal._baseIngs=meal.ingredients.slice();
   var isPinned=!!(pinnedMeals[di+'-'+mi]||meal.pinned);
 
-  var html='<div class="meal-card'+(isPinned?' pinned':'')+'" id="meal-'+di+'-'+mi+'">'
+  var html='<div class="meal-card'+(isPinned?' pinned':'')+(startOpen?' open':'')+'" id="meal-'+di+'-'+mi+'">'
     +'<div class="meal-card-header" onclick="toggleMealCard(this)">'
     +'<div class="meal-card-left">'
     +'<span class="meal-type-badge '+type+'">'+type+'</span>'
@@ -1421,9 +1424,11 @@ function renderPlan(plan) {
     s.sharedPrepTips.forEach(function(t){ html+='<div class="shared-prep-item">'+esc(t)+'</div>'; });
     html+='</div>';
   }
+  var _todayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
   plan.days.forEach(function(day,di){
-    html+='<div class="plan-day"><div class="day-name">'+esc(day.dayName)+'</div>';
-    day.meals.forEach(function(meal,mi){ html+=buildMealCardHTML(di,mi,meal); });
+    var isToday=day.dayName===_todayName;
+    html+='<div class="plan-day"><div class="day-name">'+esc(day.dayName)+(isToday?' <span class="today-badge">today</span>':'')+' </div>';
+    day.meals.forEach(function(meal,mi){ html+=buildMealCardHTML(di,mi,meal,isToday); });
     html+='</div>';
   });
   pc.innerHTML=html;
