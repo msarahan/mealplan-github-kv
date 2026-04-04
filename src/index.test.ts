@@ -107,6 +107,38 @@ describe('PUT /settings/:code', () => {
   });
 });
 
+describe('GET /recipes/:code', () => {
+  it('returns empty array when not found', async () => {
+    const res = await SELF.fetch(`${BASE}/recipes/missing`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('returns stored recipes', async () => {
+    const recipes = [{ id: 'r-1', name: 'Pasta', tags: ['quick'] }];
+    await env.NOURISH_KV.put('recipes:r1', JSON.stringify(recipes));
+    const res = await SELF.fetch(`${BASE}/recipes/r1`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(recipes);
+  });
+});
+
+describe('PUT /recipes/:code', () => {
+  it('stores recipes and returns ok', async () => {
+    const recipes = [{ id: 'r-2', name: 'Salad', tags: ['vegan'] }];
+    const res = await SELF.fetch(`${BASE}/recipes/r2`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recipes),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+
+    const stored = await env.NOURISH_KV.get('recipes:r2');
+    expect(JSON.parse(stored!)).toEqual(recipes);
+  });
+});
+
 describe('unknown routes', () => {
   it('returns 404', async () => {
     const res = await SELF.fetch(`${BASE}/unknown`);
