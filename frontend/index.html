@@ -989,7 +989,7 @@ async function pullHistory(){ try{ var h=await kvGet('/history/'+householdCode);
 function pushHistory(){ if(householdCode) kvPut('/history/'+householdCode,planHistory); }
 function saveToHistory(plan){
   if(!plan||!plan.days||!plan.days.length) return;
-  planHistory.unshift({savedAt:Date.now(),plan:plan});
+  planHistory.unshift({savedAt:Date.now(),diets:Array.from(activeDiets),plan:plan});
   if(planHistory.length>10) planHistory=planHistory.slice(0,10);
   pushHistory();
 }
@@ -997,18 +997,51 @@ function saveToHistory(plan){
 // ── History modal ─────────────────────────────────────────────────────────────
 function showHistoryModal(){ renderHistoryList(); document.getElementById('history-modal').classList.add('open'); }
 function closeHistoryModal(){ document.getElementById('history-modal').classList.remove('open'); }
+function toggleHistoryDetail(i){
+  var el=document.getElementById('hd-'+i);
+  if(!el) return;
+  var open=el.style.display!=='none';
+  el.style.display=open?'none':'block';
+  var chevron=document.getElementById('hdc-'+i);
+  if(chevron) chevron.textContent=open?'▸':'▾';
+}
 function renderHistoryList(){
   var el=document.getElementById('history-list');
   if(!planHistory.length){ el.innerHTML='<p style="color:var(--ink-light);font-size:13px;text-align:center;padding:20px 0">No saved plans yet.<br>Generate a plan to start building history.</p>'; return; }
   el.innerHTML=planHistory.map(function(entry,i){
     var d=new Date(entry.savedAt);
     var label=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
-    var days=entry.plan&&entry.plan.days?entry.plan.days.length+'':'?';
+    var days=entry.plan&&entry.plan.days?entry.plan.days.length:'?';
     var meals=entry.plan&&entry.plan.days?entry.plan.days.reduce(function(n,day){return n+(day.meals?day.meals.length:0);},0):'?';
-    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--sand)">'
-      +'<div><div style="font-size:13px;font-weight:500;color:var(--ink)">'+esc(label)+'</div>'
+    // Diet tags
+    var diets=(entry.diets||[]).map(function(d){
+      return '<span style="display:inline-block;background:var(--sage-light);color:var(--sage-dark,#2d5a3d);border-radius:10px;padding:2px 8px;font-size:10px;margin-right:3px">'+esc(d)+'</span>';
+    }).join('');
+    // Meal list grouped by day
+    var mealRows='';
+    if(entry.plan&&entry.plan.days){
+      entry.plan.days.forEach(function(day){
+        if(!day.meals||!day.meals.length) return;
+        mealRows+='<div style="margin-top:7px"><span style="font-size:10px;font-weight:600;color:var(--ink-mid);text-transform:uppercase;letter-spacing:.04em">'+esc(day.dayName||'')+'</span>';
+        day.meals.forEach(function(meal){
+          if(meal._placeholder) return;
+          mealRows+='<div style="font-size:12px;color:var(--ink);padding:1px 0 1px 8px">'+esc(meal.name||'')
+            +(meal.type?'<span style="font-size:10px;color:var(--ink-light);margin-left:5px">'+esc(meal.type)+'</span>':'')+'</div>';
+        });
+        mealRows+='</div>';
+      });
+    }
+    return '<div style="border-bottom:1px solid var(--sand);padding:8px 0">'
+      +'<div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleHistoryDetail('+i+')">'
+      +'<span id="hdc-'+i+'" style="color:var(--ink-light);font-size:12px;flex-shrink:0">▸</span>'
+      +'<div style="flex:1"><div style="font-size:13px;font-weight:500;color:var(--ink)">'+esc(label)+'</div>'
       +'<div style="font-size:11px;color:var(--ink-light)">'+days+' days &middot; '+meals+' meals</div></div>'
-      +'<button style="padding:6px 14px;background:var(--sage);color:white;border:none;border-radius:var(--radius-sm);font-family:\'DM Sans\',sans-serif;font-size:12px;cursor:pointer;white-space:nowrap" onclick="restoreFromHistory('+i+')">Restore</button>'
+      +'<button style="padding:5px 12px;background:var(--sage);color:white;border:none;border-radius:var(--radius-sm);font-family:\'DM Sans\',sans-serif;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0" onclick="event.stopPropagation();restoreFromHistory('+i+')">Restore</button>'
+      +'</div>'
+      +'<div id="hd-'+i+'" style="display:none;padding:8px 10px 4px 18px;background:var(--sand);border-radius:var(--radius-sm);margin-top:6px">'
+      +(diets?'<div style="margin-bottom:6px">'+diets+'</div>':'')
+      +mealRows
+      +'</div>'
       +'</div>';
   }).join('');
 }
