@@ -258,6 +258,26 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .picker-item-tags{display:flex;gap:3px;flex-wrap:wrap;margin-top:3px}
 .picker-tag{font-size:9px;padding:1px 6px;border-radius:20px;background:var(--sage-light);color:var(--sage-dark)}
 .picker-cancel{width:100%;padding:13px;border:none;background:var(--sand);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;color:var(--ink-mid);border-top:1px solid var(--sand-dark);flex-shrink:0}
+/* Recipe edit mode */
+.recipe-edit-btn{font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid var(--sage-mid);background:var(--sage-light);color:var(--sage-dark);cursor:pointer;font-family:'DM Sans',sans-serif;flex-shrink:0}
+.recipe-edit-srv-row{display:flex;align-items:center;gap:8px;margin:8px 0}
+.recipe-edit-srv-row label{font-size:12px;color:var(--ink-mid)}
+.recipe-edit-srv-btn{width:26px;height:26px;border-radius:50%;border:1px solid var(--sand-dark);background:var(--sand);font-size:16px;cursor:pointer;color:var(--ink-mid);line-height:1;padding:0}
+.recipe-edit-srv-val{font-size:14px;font-weight:500;color:var(--ink);min-width:20px;text-align:center}
+.recipe-edit-ing-row{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.recipe-edit-ing-row input{flex:1;padding:5px 8px;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-size:12px;font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);outline:none}
+.recipe-edit-ing-row input:focus{border-color:var(--sage);background:var(--white)}
+.recipe-edit-step-row{display:flex;align-items:flex-start;gap:6px;margin-bottom:4px}
+.recipe-edit-step-num{font-size:11px;color:var(--ink-light);padding-top:7px;min-width:16px;text-align:right;flex-shrink:0}
+.recipe-edit-step-row textarea{flex:1;padding:5px 8px;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-size:12px;font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);outline:none;resize:vertical;min-height:38px}
+.recipe-edit-step-row textarea:focus{border-color:var(--sage);background:var(--white)}
+.recipe-edit-del{padding:4px 7px;border:1px solid #fca5a5;background:#fef2f2;color:#c0392b;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;flex-shrink:0;line-height:1}
+.recipe-edit-add{font-size:11px;padding:4px 10px;border-radius:20px;border:1.5px dashed var(--sand-dark);background:none;color:var(--ink-light);cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:2px}
+.recipe-edit-add:hover{border-color:var(--sage);color:var(--sage-dark)}
+.recipe-edit-actions{display:flex;gap:7px;margin-top:12px}
+.recipe-edit-actions button{flex:1;padding:9px;border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;border:1px solid var(--sand-dark)}
+.recipe-edit-save{background:var(--sage);color:white;border-color:var(--sage) !important;font-weight:500}
+.recipe-edit-cancel{background:var(--sand);color:var(--ink-mid)}
 /* Error / empty */
 .error-card{background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius-sm);padding:12px;font-size:12px;color:#7f1d1d;line-height:1.5}
 .empty-state{text-align:center;padding:36px 16px;color:var(--ink-light)}
@@ -1284,32 +1304,72 @@ function renderRecipesTab(){
       +'<div class="recipe-card-name">'+esc(recipe.name)+'</div>'
       +(meta?'<div class="recipe-card-meta">'+esc(meta)+'</div>':'')
       +'</div>'
+      +'<button class="recipe-edit-btn" onclick="editRecipe(\''+recipe.id+'\');event.stopPropagation()">Edit</button>'
       +'<button class="recipe-del-btn" onclick="deleteRecipe(\''+recipe.id+'\');event.stopPropagation()">Remove</button>'
       +'<span class="recipe-expand">&#8964;</span>'
       +'</div>'
       +'<div class="recipe-detail">';
-    if(recipe.tags&&recipe.tags.length){
-      html+='<div class="meal-tags" style="margin-top:9px">';
-      recipe.tags.forEach(function(t){ html+='<span class="meal-tag">'+esc(t)+'</span>'; });
-      html+='</div>';
+    var rid=recipe.id, es=recipeEditState[rid];
+    if(es){
+      // ── Edit mode ──────────────────────────────────────────────────────────
+      html+='<div class="recipe-edit-srv-row">'
+        +'<label>Serves</label>'
+        +'<button class="recipe-edit-srv-btn" onclick="recipeEditServings(\''+rid+'\',-1)">&#8722;</button>'
+        +'<span class="recipe-edit-srv-val" id="rc-edit-srv-'+rid+'">'+es.servings+'</span>'
+        +'<button class="recipe-edit-srv-btn" onclick="recipeEditServings(\''+rid+'\',1)">&#43;</button>'
+        +'<span style="font-size:10px;color:var(--ink-light)">quantities scale automatically</span>'
+        +'</div>'
+        +'<div class="detail-label">Ingredients</div>'
+        +'<div id="rc-edit-ings-'+rid+'">';
+      es.ings.forEach(function(ing){
+        html+='<div class="recipe-edit-ing-row">'
+          +'<input type="text" value="'+esc(ing)+'" placeholder="e.g. 1 cup rice">'
+          +'<button class="recipe-edit-del" onclick="this.closest(\'.recipe-edit-ing-row\').remove()">&#10005;</button>'
+          +'</div>';
+      });
+      html+='</div>'
+        +'<button class="recipe-edit-add" onclick="recipeEditAddIng(\''+rid+'\')">&#43; ingredient</button>'
+        +'<div class="detail-label" style="margin-top:10px">Steps</div>'
+        +'<div id="rc-edit-steps-'+rid+'">';
+      es.steps.forEach(function(step,si){
+        html+='<div class="recipe-edit-step-row">'
+          +'<span class="recipe-edit-step-num">'+(si+1)+'.</span>'
+          +'<textarea placeholder="Describe step '+(si+1)+'...">'+esc(step)+'</textarea>'
+          +'<button class="recipe-edit-del" onclick="recipeEditRemoveStep(this,\''+rid+'\')">&#10005;</button>'
+          +'</div>';
+      });
+      html+='</div>'
+        +'<button class="recipe-edit-add" onclick="recipeEditAddStep(\''+rid+'\')">&#43; step</button>'
+        +'<div class="recipe-edit-actions">'
+        +'<button class="recipe-edit-cancel" onclick="cancelEditRecipe(\''+rid+'\')">Cancel</button>'
+        +'<button class="recipe-edit-save" onclick="saveEditedRecipe(\''+rid+'\')">Save</button>'
+        +'</div>';
+    } else {
+      // ── View mode ──────────────────────────────────────────────────────────
+      if(recipe.tags&&recipe.tags.length){
+        html+='<div class="meal-tags" style="margin-top:9px">';
+        recipe.tags.forEach(function(t){ html+='<span class="meal-tag">'+esc(t)+'</span>'; });
+        html+='</div>';
+      }
+      html+='<div class="macro-bar" style="margin-top:7px">'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.calories||'?')+'</div><div class="mp-label">kcal/srv</div></div>'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.protein||'?')+'g</div><div class="mp-label">protein</div></div>'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.carbs||'?')+'g</div><div class="mp-label">carbs</div></div>'
+        +'<div class="macro-pill"><div class="mp-val">'+(recipe.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
+        +'</div>';
+      if(recipe.ingredients&&recipe.ingredients.length){
+        html+='<div class="detail-label">Ingredients <span style="font-size:10px;font-weight:400;color:var(--ink-light)">per serving</span></div><ul class="ingredients-list">';
+        var dispIngs = scaleIngs(recipe.ingredients, recipe.servings||1);
+        dispIngs.forEach(function(i){ html+='<li>'+esc(i)+'</li>'; });
+        html+='</ul>';
+      }
+      if(recipe.steps&&recipe.steps.length){
+        html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
+        recipe.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
+        html+='</ol>';
+      }
+      if(recipe.sourceUrl) html+='<div style="margin-top:8px;font-size:11px;color:var(--ink-light)">Source: <a href="'+esc(recipe.sourceUrl)+'" target="_blank" style="color:var(--sage-dark)">'+esc(recipe.sourceUrl.replace(/^https?:\/\//,'').split('/')[0])+'</a></div>';
     }
-    html+='<div class="macro-bar" style="margin-top:7px">'
-      +'<div class="macro-pill"><div class="mp-val">'+(recipe.calories||'?')+'</div><div class="mp-label">kcal/srv</div></div>'
-      +'<div class="macro-pill"><div class="mp-val">'+(recipe.protein||'?')+'g</div><div class="mp-label">protein</div></div>'
-      +'<div class="macro-pill"><div class="mp-val">'+(recipe.carbs||'?')+'g</div><div class="mp-label">carbs</div></div>'
-      +'<div class="macro-pill"><div class="mp-val">'+(recipe.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
-      +'</div>';
-    if(recipe.ingredients&&recipe.ingredients.length){
-      html+='<div class="detail-label">Ingredients</div><ul class="ingredients-list">';
-      recipe.ingredients.forEach(function(i){ html+='<li>'+esc(i)+'</li>'; });
-      html+='</ul>';
-    }
-    if(recipe.steps&&recipe.steps.length){
-      html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
-      recipe.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
-      html+='</ol>';
-    }
-    if(recipe.sourceUrl) html+='<div style="margin-top:8px;font-size:11px;color:var(--ink-light)">Source: <a href="'+esc(recipe.sourceUrl)+'" target="_blank" style="color:var(--sage-dark)">'+esc(recipe.sourceUrl.replace(/^https?:\/\//,'').split('/')[0])+'</a></div>';
     html+='</div></div>';
   });
   el.innerHTML=html;
@@ -1333,6 +1393,85 @@ function deleteRecipe(id){
   savedRecipes=savedRecipes.filter(function(r){return r.id!==id;});
   Object.keys(pinnedMeals).forEach(function(k){if(pinnedMeals[k]===id)delete pinnedMeals[k];});
   pushRecipes(); renderRecipesTab(); if(currentPlan) renderPlan(currentPlan);
+}
+
+// ── Recipe editing ────────────────────────────────────────────────────────────
+var recipeEditState = {};
+
+function editRecipe(id){
+  var recipe=savedRecipes.filter(function(r){return r.id===id;})[0]; if(!recipe) return;
+  var srv=recipe.servings||1;
+  recipeEditState[id]={
+    servings:srv,
+    ings:scaleIngs(recipe.ingredients||[],srv).slice(),
+    steps:(recipe.steps||[]).slice()
+  };
+  renderRecipesTab();
+  var el=document.getElementById('rc-'+id); if(el) el.classList.add('open');
+}
+
+function cancelEditRecipe(id){
+  delete recipeEditState[id];
+  renderRecipesTab();
+  var el=document.getElementById('rc-'+id); if(el) el.classList.add('open');
+}
+
+function saveEditedRecipe(id){
+  var recipe=savedRecipes.filter(function(r){return r.id===id;})[0]; if(!recipe) return;
+  var state=recipeEditState[id]; if(!state) return;
+  var ingInputs=document.querySelectorAll('#rc-edit-ings-'+id+' input');
+  var ings=Array.from(ingInputs).map(function(i){return i.value.trim();}).filter(Boolean);
+  var stepTAs=document.querySelectorAll('#rc-edit-steps-'+id+' textarea');
+  var steps=Array.from(stepTAs).map(function(t){return t.value.trim();}).filter(Boolean);
+  recipe.ingredients=ings;
+  recipe.steps=steps;
+  recipe.servings=state.servings;
+  delete recipeEditState[id];
+  pushRecipes(); renderRecipesTab();
+  var el=document.getElementById('rc-'+id); if(el) el.classList.add('open');
+}
+
+function recipeEditServings(id,delta){
+  var state=recipeEditState[id]; if(!state) return;
+  var newSrv=Math.max(1,state.servings+delta);
+  if(newSrv===state.servings) return;
+  var ingInputs=document.querySelectorAll('#rc-edit-ings-'+id+' input');
+  var currentIngs=Array.from(ingInputs).map(function(i){return i.value.trim();});
+  var ratio=newSrv/state.servings;
+  var scaled=currentIngs.map(function(ing){
+    var p=parseIng(ing); if(!p.qty) return ing;
+    return (fmtQty(p.qty*ratio)||'')+(p.unit?' '+p.unit:'')+' '+p.rest;
+  });
+  state.servings=newSrv;
+  state.ings=scaled;
+  var srvEl=document.getElementById('rc-edit-srv-'+id); if(srvEl) srvEl.textContent=newSrv;
+  ingInputs.forEach(function(inp,i){ inp.value=scaled[i]||''; });
+}
+
+function recipeEditAddIng(id){
+  var container=document.getElementById('rc-edit-ings-'+id); if(!container) return;
+  var row=document.createElement('div'); row.className='recipe-edit-ing-row';
+  row.innerHTML='<input type="text" placeholder="e.g. 1 cup rice">'
+    +'<button class="recipe-edit-del" onclick="this.closest(\'.recipe-edit-ing-row\').remove()">&#10005;</button>';
+  container.appendChild(row);
+  row.querySelector('input').focus();
+}
+
+function recipeEditAddStep(id){
+  var container=document.getElementById('rc-edit-steps-'+id); if(!container) return;
+  var n=container.querySelectorAll('.recipe-edit-step-row').length+1;
+  var row=document.createElement('div'); row.className='recipe-edit-step-row';
+  row.innerHTML='<span class="recipe-edit-step-num">'+n+'.</span>'
+    +'<textarea placeholder="Describe step '+n+'..."></textarea>'
+    +'<button class="recipe-edit-del" onclick="recipeEditRemoveStep(this,\''+id+'\')">&#10005;</button>';
+  container.appendChild(row);
+  row.querySelector('textarea').focus();
+}
+
+function recipeEditRemoveStep(btn,id){
+  btn.closest('.recipe-edit-step-row').remove();
+  var container=document.getElementById('rc-edit-steps-'+id); if(!container) return;
+  container.querySelectorAll('.recipe-edit-step-num').forEach(function(el,i){ el.textContent=(i+1)+'.'; });
 }
 
 async function parseRecipe(){
