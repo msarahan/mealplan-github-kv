@@ -1670,7 +1670,7 @@ function unpinMeal(di,mi){
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-(function(){ var el=document.getElementById('app-version-footer'); if(el) el.textContent=window.__VERSION__||''; })();
+(function(){ var el=document.getElementById('app-version-footer'); if(el){ var v=window.__VERSION__||''; el.textContent=(/^__/).test(v)?'':v; } })();
 
 // Load local settings first (before enterApp so state is ready)
 loadLocalSettings();
