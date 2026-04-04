@@ -12,7 +12,7 @@
 	},
 	"kv_namespaces": [
 		{
-		"binding": "USER_NOTIFICATION",
+		"binding": "NOURISH_KV",
 		"id": "85ad1c1dbb3f40af9fcfd613c7799f64"
 		}
 	]
