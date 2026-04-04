@@ -20,9 +20,6 @@ jobs:
 
       - run: npm ci
 
-      - name: Inject git hash
-        run: sed -i "s/__GIT_HASH__/$(git rev-parse --short HEAD)/g" frontend/version.js
-
       - name: Deploy to Cloudflare Workers
         run: npm run deploy
         env:

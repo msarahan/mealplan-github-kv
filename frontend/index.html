@@ -238,6 +238,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .recipe-add-input.tall{resize:vertical;min-height:52px;font-size:11px}
 .recipe-add-btn{padding:8px 12px;border-radius:var(--radius-sm);border:none;background:var(--sage);color:white;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;align-self:flex-start}
 .recipe-add-btn:disabled{background:var(--sage-mid);cursor:not-allowed}
+.recipe-pdf-btn{display:inline-flex;align-items:center;gap:5px;background:var(--sand-dark);color:var(--ink)}
 .parse-status{font-size:11px;color:var(--ink-light);min-height:16px}
 .recipe-filter-row{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
 .filter-chip{padding:4px 10px;border-radius:20px;border:1px solid var(--sand-dark);background:var(--sand);font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;color:var(--ink-mid)}
@@ -1147,7 +1148,7 @@ function buildGroceryPrompt(plan) {
     +' show TOTAL RECIPE QUANTITY in cooking units (e.g. "1½ cups rolled oats", "¾ cup quinoa", "2 cups brown rice", "½ cup walnuts", "2 tsp cumin").'
     +' Users may have a partial bag open — they need the amount, not the store unit.'
     +'\n- Canned & Preserved: show can count AND drained volume, e.g. "2 cans (~3 cups drained)".'
-    +'\n\nEach item must include a "sources" array listing every meal that uses it and how much: {"meal":"Monday Dinner: Lemon Herb Salmon","qty":"6 oz"}.'
+    +'\n\nEach item must include a "sources" array listing up to 3 meals that use it (omit minor uses if more than 3): {"meal":"Monday Dinner: Lemon Herb Salmon","qty":"6 oz"}.'
     +'\n\nReturn ONLY valid JSON:'
     +'{"groceryList":[{"name":"Rolled oats","qty":"1½ cups","category":"Grains & Bread","sources":[{"meal":"Monday Breakfast: Overnight Oats","qty":"½ cup"},{"meal":"Wednesday Breakfast: Granola Bowl","qty":"1 cup"}]},{"name":"Olive oil","qty":"¾ cup","category":"Pantry","sources":[{"meal":"Monday Dinner: Salmon","qty":"2 tbsp"},{"meal":"Tuesday Lunch: Salad","qty":"1 tbsp"}]}]}'
     +'\nCategories: Produce, Protein, Dairy & Eggs, Grains & Bread, Pantry, Canned & Preserved, Nuts & Seeds, Herbs & Spices, Frozen, Other.';
@@ -1219,7 +1220,7 @@ async function generatePlan() {
     if(steps[0]){steps[0].classList.remove('active');steps[0].classList.add('done');}
     if(steps[1]) steps[1].classList.add('active');
     startProg(1);
-    var grocery=await callClaude(buildGroceryPrompt(plan),3000);
+    var grocery=await callClaude(buildGroceryPrompt(plan),8000);
     plan.groceryList=normalizeGroceryQtys(grocery.groceryList);
     completeProg();
     plan.customItems=customItems;
@@ -1513,6 +1514,9 @@ function renderRecipesTab(){
     +'<input class="recipe-add-input" id="recipe-url-input" type="url" placeholder="Paste recipe URL to import...">'
     +'<button class="recipe-add-btn" id="parse-btn" onclick="parseRecipe()">Import</button>'
     +'</div>'
+    +'<div class="recipe-add-row">'
+    +'<label class="recipe-add-btn recipe-pdf-btn">&#128196; Import from PDF<input type="file" id="recipe-pdf-input" accept=".pdf,application/pdf" style="display:none" onchange="parsePdfRecipe(this)"></label>'
+    +'</div>'
     +'<textarea class="recipe-add-input tall" id="recipe-text-input" placeholder="...or paste recipe text here"></textarea>'
     +'<div class="parse-status" id="parse-status"></div>'
     +'</div>'
@@ -1733,6 +1737,40 @@ async function parseRecipe(){
     if(statusEl)statusEl.textContent='Added: '+recipe.name;
   }catch(e){if(statusEl)statusEl.textContent='Error: '+e.message;}
   btn.disabled=false;
+}
+
+async function parsePdfRecipe(input){
+  var statusEl=document.getElementById('parse-status');
+  var file=input.files&&input.files[0];
+  if(!file) return;
+  if(!WORKER_ON){if(statusEl)statusEl.textContent='PDF import requires the Worker.';input.value='';return;}
+  if(statusEl)statusEl.textContent='Reading PDF\u2026';
+  var fd=new FormData();
+  fd.append('pdf',file);
+  try{
+    var resp=await fetch(WORKER_URL+'/parse-pdf',{method:'POST',body:fd});
+    var data=await resp.json();
+    if(data.error) throw new Error(data.error);
+    var recipes=Array.isArray(data.recipes)?data.recipes:[data];
+    var added=0, firstName='';
+    recipes.forEach(function(recipe){
+      if(!recipe||!recipe.name) return;
+      recipe.id='r-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+      recipe.mealTypes=recipe.mealTypes||[];
+      recipe.savedAt=Date.now();
+      recipe.sourceUrl=recipe.sourceUrl||'';
+      if(savedRecipes.some(function(r){return r.name.toLowerCase()===recipe.name.toLowerCase();})) return;
+      if(!firstName) firstName=recipe.name;
+      savedRecipes.unshift(recipe);
+      added++;
+    });
+    pushRecipes(); renderRecipesTab();
+    input.value='';
+    if(statusEl)statusEl.textContent=added===0?'No new recipes (already saved?)':(added===1?'Added: '+firstName:'Added '+added+' recipes from PDF');
+  }catch(e){
+    if(statusEl)statusEl.textContent='Error: '+e.message;
+    input.value='';
+  }
 }
 
 // ── Recipe picker (pin to slot) ───────────────────────────────────────────────

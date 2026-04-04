@@ -3,7 +3,7 @@
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
-		"deploy": "wrangler deploy",
+		"deploy": "bash -c 'HASH=$(git rev-parse --short HEAD 2>/dev/null || echo dev) && cp frontend/version.js frontend/version.js.bak && sed -i \"s/__GIT_HASH__/$HASH/g\" frontend/version.js && wrangler deploy; EXIT=$?; mv frontend/version.js.bak frontend/version.js; exit $EXIT'",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"test": "vitest",
