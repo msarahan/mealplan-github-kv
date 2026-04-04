@@ -1625,7 +1625,7 @@ function renderRecipesTab(){
         +'<button class="recipe-edit-srv-btn" onclick="recipeEditServings(\''+rid+'\',-1)">&#8722;</button>'
         +'<span class="recipe-edit-srv-val" id="rc-edit-srv-'+rid+'">'+es.servings+'</span>'
         +'<button class="recipe-edit-srv-btn" onclick="recipeEditServings(\''+rid+'\',1)">&#43;</button>'
-        +'<span style="font-size:10px;color:var(--ink-light)">quantities scale automatically</span>'
+        +'<span style="font-size:10px;color:var(--ink-light)">enter total amounts for this many servings</span>'
         +'</div>'
         +'<div class="detail-label">Ingredients</div>'
         +'<div id="rc-edit-ings-'+rid+'">';
@@ -1782,9 +1782,15 @@ function saveEditedRecipe(id){
   var ings=Array.from(ingInputs).map(function(i){return i.value.trim();}).filter(Boolean);
   var stepTAs=document.querySelectorAll('#rc-edit-steps-'+id+' textarea');
   var steps=Array.from(stepTAs).map(function(t){return t.value.trim();}).filter(Boolean);
-  recipe.ingredients=ings;
+  // Edit form shows totals for state.servings people; normalise to per-1-serving before storing
+  var srv=state.servings||1;
+  var normIngs=srv===1?ings:ings.map(function(ing){
+    var p=parseIng(ing); if(!p.qty) return ing;
+    return (fmtQty(p.qty/srv)||String(Math.round(p.qty/srv*1000)/1000))+(p.unit?' '+p.unit:'')+(p.rest?' '+p.rest:'');
+  });
+  recipe.ingredients=normIngs;
   recipe.steps=steps;
-  recipe.servings=state.servings;
+  recipe.servings=srv;
   var notesTA=document.getElementById('rc-edit-notes-'+id);
   recipe.notes=notesTA?notesTA.value.trim():(recipe.notes||'');
   delete recipeEditState[id];
