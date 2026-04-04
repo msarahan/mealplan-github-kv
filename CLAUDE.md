@@ -1,43 +1,56 @@
 # Nourish - Smart Meal Planner
 
 ## Project overview
-A shared household meal planning app. A Cloudflare Worker acts as backend (KV storage + Anthropic API proxy). The frontend is a single-file mobile-first HTML app deployed on Netlify.
+A shared household meal planning app. A Cloudflare Worker serves both the backend API (KV storage + Anthropic API proxy) and the frontend as a static asset — everything deploys from a single repo via GitHub Actions CI.
 
 ## Repository structure
 ```
 mealplan-github-kv/
 ├── src/
-│   └── index.js          ← Cloudflare Worker (backend)
+│   └── index.ts          ← Cloudflare Worker (backend, TypeScript)
+├── src/
+│   └── index.test.ts     ← Vitest integration tests (run inside Workers runtime)
 ├── frontend/
-│   └── index.html        ← Single-file app (HTML + CSS + JS)
-├── wrangler.toml         ← Cloudflare Worker config
+│   └── index.html        ← Single-file app (HTML + CSS + JS), served as static asset
+├── .github/
+│   └── workflows/
+│       └── deploy.yml    ← CI: deploys worker + sets ANTHROPIC_API_KEY secret on every push to main
+├── wrangler.jsonc         ← Cloudflare Worker config (assets, KV binding)
+├── vitest.config.mts     ← Vitest config using @cloudflare/vitest-pool-workers
 ├── package.json
 └── CLAUDE.md             ← this file
 ```
 
 ## Deployment
-- **Worker**: Cloudflare Workers, auto-deployed on push to main via GitHub integration
-  - URL: `https://mealplan-github-kv.msarahan528.workers.dev`
+- **Everything**: single Cloudflare Worker at `https://mealplan-github-kv.msarahan528.workers.dev`
+  - Frontend (`frontend/index.html`) served as static asset at `/`
+  - API routes handled by `src/index.ts`
+  - Auto-deployed on push to `main` via `.github/workflows/deploy.yml`
   - KV binding name: `NOURISH_KV`
-  - Secret: `ANTHROPIC_API_KEY` (set in Cloudflare dashboard, never in code)
-- **Frontend**: Netlify, manual deploy by drag-dropping `frontend/index.html`
-  - The `WORKER_URL` constant near the top of `index.html` must match the Worker URL above
+  - Secrets: `ANTHROPIC_API_KEY` stored in Cloudflare (synced from GitHub Actions secret on each deploy)
+- **Access control**: Cloudflare Zero Trust / Access can gate the URL to specific email addresses (free for ≤50 users)
+- **Local dev**: `npx wrangler dev` serves both frontend and API locally
+
+## CI/CD
+- Push to `main` → GitHub Actions runs `npm ci`, `wrangler deploy`, then `wrangler secret put ANTHROPIC_API_KEY`
+- Required GitHub Actions secrets: `CLOUDFLARE_API_TOKEN`, `ANTHROPIC_API_KEY`
+- Tests: `npm test` (vitest, runs inside Miniflare Workers runtime)
 
 ## Worker API endpoints
-All endpoints return JSON with CORS headers.
+All endpoints return JSON with CORS headers (`Access-Control-Allow-Origin: *`).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/plan/:code` | Load shared meal plan |
-| PUT | `/plan/:code` | Save meal plan (30 day TTL) |
+| GET | `/plan/:code` | Load shared meal plan (30 day TTL) |
+| PUT | `/plan/:code` | Save meal plan |
 | GET | `/checks/:code` | Load grocery check-off state |
 | PUT | `/checks/:code` | Save grocery check-off state |
-| GET | `/settings/:code` | Load household settings |
-| PUT | `/settings/:code` | Save household settings (1 year TTL) |
-| GET | `/recipes/:code` | Load saved recipe library |
+| GET | `/settings/:code` | Load household settings (1 year TTL) |
+| PUT | `/settings/:code` | Save household settings |
+| GET | `/recipes/:code` | Load saved recipe library (1 year TTL) |
 | PUT | `/recipes/:code` | Save recipe library |
-| POST | `/generate` | Proxy to Anthropic API (adds API key) |
-| POST | `/parse-recipe` | Fetch URL + extract recipe via Claude |
+| POST | `/generate` | Proxy to Anthropic API (keeps API key server-side) |
+| POST | `/parse-recipe` | Fetch URL server-side + extract recipe JSON via Claude |
 
 ## KV key schema
 ```
@@ -149,15 +162,19 @@ Multiple diets use OR logic — each meal follows any one of the selected approa
 
 ## Ingredient quantity formatting
 Quantities are expressed as US cooking measures (cups, tbsp, tsp, oz, lb).
-The `fmtQty()` function snaps floats to clean fractions using GCD reduction over denominators [1,2,3,4,6,8], so 0.666... → 2/3, 1.5 → 1 1/2, etc.
+- `parseIng(str)` parses a string like `"1 1/2 cup rice"` into `{qty, unit, rest}`. Handles improper fractions with spaces (`"6 /4 cup"` → 1.5).
+- `fmtQty(n)` formats a float as a clean fraction using GCD reduction over denominators [1,2,3,4,6,8]: 0.666… → 2/3, 1.5 → 1 1/2.
+- `scaleIngs(ings, servings)` applies both to an ingredient array.
+- `normalizeFractions(str)` reduces any `N/D` fraction in a raw string (used to clean AI-returned grocery qty values).
 
 ## Sync behaviour
 - Settings, plan, and recipes sync to KV on every change
 - Grocery check-offs sync to KV on each tap, and poll every 8s when grocery tab is active
-- Local `localStorage` is used as fallback when Worker URL is not configured
+- Frontend uses relative API paths (`/plan/...`) — no hardcoded worker URL
 
 ## Claude Code tips
-- The frontend is intentionally a single HTML file — keep it that way for simple Netlify deployment
-- Test Worker changes locally with `npx wrangler dev` before pushing
+- The frontend is intentionally a single HTML file — keep it that way
+- Run `npm test` after any Worker changes; tests run in the real Workers runtime via Miniflare
 - The Worker uses ES module syntax (`export default { async fetch() {} }`)
-- Never put the Anthropic API key in code — it's a Cloudflare secret
+- Never put the Anthropic API key in code — it's a Cloudflare secret synced by CI
+- `wrangler deploy --dry-run` validates config without deploying

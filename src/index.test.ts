@@ -1,15 +1,27 @@
 import { env, SELF } from 'cloudflare:test';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 const BASE = 'http://example.com';
 
-describe('OPTIONS', () => {
-  it('returns 200 with CORS headers', async () => {
+// ── CORS ─────────────────────────────────────────────────────────────────────
+
+describe('OPTIONS preflight', () => {
+  it('returns 200 with CORS headers on any path', async () => {
     const res = await SELF.fetch(`${BASE}/plan/abc`, { method: 'OPTIONS' });
     expect(res.status).toBe(200);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(res.headers.get('Access-Control-Allow-Methods')).toContain('GET');
   });
 });
+
+describe('JSON responses include CORS header', () => {
+  it('GET /plan includes Access-Control-Allow-Origin', async () => {
+    const res = await SELF.fetch(`${BASE}/plan/cors-check`);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+  });
+});
+
+// ── /plan ────────────────────────────────────────────────────────────────────
 
 describe('GET /plan/:code', () => {
   it('returns null when not found', async () => {
@@ -37,11 +49,11 @@ describe('PUT /plan/:code', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-
-    const stored = await env.NOURISH_KV.get('plan:xyz');
-    expect(JSON.parse(stored!)).toEqual(plan);
+    expect(JSON.parse((await env.NOURISH_KV.get('plan:xyz'))!)).toEqual(plan);
   });
 });
+
+// ── /checks ──────────────────────────────────────────────────────────────────
 
 describe('GET /checks/:code', () => {
   it('returns empty array when not found', async () => {
@@ -69,11 +81,11 @@ describe('PUT /checks/:code', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-
-    const stored = await env.NOURISH_KV.get('checks:c2');
-    expect(JSON.parse(stored!)).toEqual(checks);
+    expect(JSON.parse((await env.NOURISH_KV.get('checks:c2'))!)).toEqual(checks);
   });
 });
+
+// ── /settings ────────────────────────────────────────────────────────────────
 
 describe('GET /settings/:code', () => {
   it('returns null when not found', async () => {
@@ -101,11 +113,11 @@ describe('PUT /settings/:code', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-
-    const stored = await env.NOURISH_KV.get('settings:s2');
-    expect(JSON.parse(stored!)).toEqual(settings);
+    expect(JSON.parse((await env.NOURISH_KV.get('settings:s2'))!)).toEqual(settings);
   });
 });
+
+// ── /recipes ─────────────────────────────────────────────────────────────────
 
 describe('GET /recipes/:code', () => {
   it('returns empty array when not found', async () => {
@@ -133,16 +145,35 @@ describe('PUT /recipes/:code', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-
-    const stored = await env.NOURISH_KV.get('recipes:r2');
-    expect(JSON.parse(stored!)).toEqual(recipes);
+    expect(JSON.parse((await env.NOURISH_KV.get('recipes:r2'))!)).toEqual(recipes);
   });
 });
+
+// ── /parse-recipe ─────────────────────────────────────────────────────────────
+
+describe('POST /parse-recipe', () => {
+  it('returns 400 when no url or text provided', async () => {
+    const res = await SELF.fetch(`${BASE}/parse-recipe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as any).error).toBeTruthy();
+  });
+});
+
+// ── unknown routes ────────────────────────────────────────────────────────────
 
 describe('unknown routes', () => {
   it('returns 404', async () => {
     const res = await SELF.fetch(`${BASE}/unknown`);
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Not found' });
+  });
+
+  it('returns 404 for route with missing code segment', async () => {
+    const res = await SELF.fetch(`${BASE}/plan`);
+    expect(res.status).toBe(404);
   });
 });

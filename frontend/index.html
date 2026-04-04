@@ -443,8 +443,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
-var WORKER_URL = 'https://mealplan-github-kv.msarahan528.workers.dev';
-var WORKER_ON  = WORKER_URL.indexOf('YOUR_WORKER') === -1;
+var WORKER_URL = '';  // relative — frontend and worker share the same origin
+var WORKER_ON  = true;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 var DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -693,14 +693,21 @@ function getSrv(t, d) { var c = householdServings[t]; if (!c) return 2; var v = 
 
 // ── Ingredient scaling ────────────────────────────────────────────────────────
 function parseIng(str) {
-  // Normalise improper fractions written with spaces around slash: "6 /4" → "6/4", "1 / 2" → "1/2"
-  str = str.replace(/^(\d+)\s*\/\s*(\d+)/, '$1/$2');
-  var m = str.match(/^(\d+)?\s*(\d+\/\d+)?\s*([a-zA-Z]+)?\s*(.*)/);
+  // Normalise unicode fractions → ASCII
+  str = str.replace(/½/g,'1/2').replace(/⅓/g,'1/3').replace(/⅔/g,'2/3')
+           .replace(/¼/g,'1/4').replace(/¾/g,'3/4').replace(/⅛/g,'1/8')
+           .replace(/⅜/g,'3/8').replace(/⅝/g,'5/8').replace(/⅞/g,'7/8');
+  // Normalise space-slash fractions: "6 /4" → "6/4", "1 / 2" → "1/2"
+  str = str.replace(/(\d+)\s*\/\s*(\d+)/g, '$1/$2');
+  // Match: optional whole/decimal, optional fraction, optional unit word, rest
+  var m = str.match(/^(\d+(?:\.\d+)?)?\s*(\d+\/\d+)?\s*([a-zA-Z]+)?\s*(.*)/);
   if (!m) return {qty:null,unit:'',rest:str};
-  var whole = m[1]?parseInt(m[1],10):0, frac=0;
+  var whole = m[1]?parseFloat(m[1]):0, frac=0;
   if (m[2]){ var p=m[2].split('/'); frac=parseInt(p[0],10)/parseInt(p[1],10); }
   var qty=(whole+frac)||null, unit=m[3]||'', rest=m[4]||'';
-  var known=['cup','cups','tbsp','tsp','oz','lb','lbs','pound','pounds','fl','quart','quarts','pint','pints','gallon','gallons','can','cans','bunch','head','heads','clove','cloves','slice','slices','piece','pieces','pinch','dash','stick','sticks','pkg','package','bag','jar','bottle'];
+  // Handle multi-word unit "fl oz"
+  if (unit.toLowerCase()==='fl' && /^oz\b/i.test(rest)) { unit='fl oz'; rest=rest.replace(/^oz\s*/i,''); }
+  var known=['cup','cups','tbsp','tsp','oz','fl oz','lb','lbs','pound','pounds','quart','quarts','pint','pints','gallon','gallons','can','cans','bunch','head','heads','clove','cloves','slice','slices','piece','pieces','pinch','dash','stick','sticks','pkg','package','bag','jar','bottle'];
   if (unit && known.indexOf(unit.toLowerCase())<0){ rest=unit+(rest?' '+rest:''); unit=''; }
   if (!qty&&!unit) return {qty:null,unit:'',rest:str};
   return {qty:qty,unit:unit,rest:rest.trim()};
@@ -1012,7 +1019,7 @@ function progHTML(step){
 async function generatePlan() {
   var btn=document.getElementById('gen-btn');
   btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Generating...';
-  switchTab('plan'); mealServings={}; checkedItems=new Set(); pinnedMeals={};
+  switchTab('plan'); mealServings={}; pinnedMeals={};
   var pc=document.getElementById('plan-content');
   pc.innerHTML=progHTML(0); startProg(0);
   try {
@@ -1250,11 +1257,10 @@ function renderGrocery() {
     +'<button class="export-btn primary" onclick="copyGrocery()">&#128203; Copy</button>'
     +'<button class="export-btn" onclick="shareGrocery()">&#8599; Share</button>'
     +'</div>';
-  var idx=0;
   allCats.forEach(function(c){
     html+='<div class="grocery-section"><div class="grocery-cat-label"><span class="cat-dot" style="background:'+(CAT_DOT[c]||'#5a5a5a')+'"></span>'+esc(c)+'</div>';
     byCategory[c].forEach(function(item){
-      var id='gi-'+(idx++), done=checkedItems.has(id);
+      var id='gi-'+ingKey(item.name), done=checkedItems.has(id);
       html+='<div class="grocery-item'+(done?' done':'')+'" data-item-id="'+id+'" onclick="toggleGroceryItem(this)">'
         +'<div class="gi-check">'+(done?'\u2713':'')+'</div>'
         +'<span class="gi-name">'+esc(item.name)+'</span><span class="gi-qty">'+esc(item.qty||'')+'</span></div>';
