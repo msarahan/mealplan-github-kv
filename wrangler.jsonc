@@ -10,6 +10,9 @@
 	"observability": {
 		"enabled": true
 	},
+	"assets": {
+		"directory": "./frontend"
+	},
 	"kv_namespaces": [
 		{
 		"binding": "NOURISH_KV",
