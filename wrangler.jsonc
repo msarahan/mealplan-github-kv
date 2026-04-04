@@ -8,7 +8,9 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-27",
 	"workers_dev": false,
-	"custom_domains": ["meals.fatcowshrine.com"],
+	"routes": [
+		{ "pattern": "meals.fatcowshrine.com", "custom_domain": true }
+	],
 	"observability": {
 		"enabled": true
 	},
