@@ -63,8 +63,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);mi
 #src-popover .sp-row:last-child{border-bottom:none}
 #src-popover .sp-meal{color:var(--ink-light);flex:1}
 #src-popover .sp-qty{font-weight:500;white-space:nowrap}
-.gi-info{background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-light);padding:0 0 0 4px;line-height:1;flex-shrink:0}
-.gi-info:hover{color:var(--sage)}
+.gi-info{background:none;border:none;cursor:pointer;font-size:15px;color:var(--sage-mid);padding:0 0 0 6px;line-height:1;flex-shrink:0;opacity:.8}
+.gi-info:hover{color:var(--sage);opacity:1}
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;font-family:'DM Sans',sans-serif;z-index:999;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
 .modal-bg.open{display:flex}
@@ -1470,7 +1470,37 @@ async function swapMeal(di,mi,btn,customPrompt){
 }
 
 // ── Grocery render ────────────────────────────────────────────────────────────
+// Derive per-ingredient sources from meal plan data (fills in any items that
+// the AI omitted sources for, and works for plans loaded from KV without sources).
+function enrichGroceryWithSources(plan) {
+  if (!plan || !plan.groceryList || !plan.days) return;
+  plan.groceryList.forEach(function(item) {
+    if (item.sources && item.sources.length) return; // already populated
+    var gKey = ingKey(item.name);
+    var found = [];
+    plan.days.forEach(function(day) {
+      day.meals.forEach(function(meal) {
+        if (meal.isLeftover || !meal.ingredients) return;
+        var label = day.dayName + ' ' + meal.type.charAt(0).toUpperCase() + meal.type.slice(1) + ': ' + meal.name;
+        meal.ingredients.forEach(function(ing) {
+          var p = parseIng(ing);
+          var rKey = ingKey(p.rest || ing);
+          if (!rKey || !gKey || rKey.length < 3 || gKey.length < 3) return;
+          var match = gKey === rKey
+            || (gKey.length >= 4 && rKey.length >= 4 && (rKey.indexOf(gKey) >= 0 || gKey.indexOf(rKey) >= 0));
+          if (match && !found.some(function(f){ return f.meal === label; })) {
+            var qtyStr = (p.qty ? (fmtQty(p.qty) || String(p.qty)) : '') + (p.unit ? ' ' + p.unit : '');
+            found.push({ meal: label, qty: qtyStr.trim() || ing });
+          }
+        });
+      });
+    });
+    if (found.length) item.sources = found.slice(0, 5);
+  });
+}
+
 function renderGrocery() {
+  enrichGroceryWithSources(currentPlan);
   var list=(currentPlan&&currentPlan.groceryList)?currentPlan.groceryList:[];
   var custom=customItems;
   var byCategory={};
