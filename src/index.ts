@@ -74,6 +74,12 @@ export default {
       if (request.method === 'PUT')  { await kvPut('recipes:' + seg[1], await request.json(), YEAR); return json({ ok: true }); }
     }
 
+    // ── GET|PUT /history/:code ───────────────────────────────────────────────
+    if (seg[0] === 'history' && seg[1]) {
+      if (request.method === 'GET')  return json(await kvGet('history:' + seg[1]) || []);
+      if (request.method === 'PUT')  { await kvPut('history:' + seg[1], await request.json(), DAY * 180); return json({ ok: true }); }
+    }
+
     // ── POST /generate ───────────────────────────────────────────────────────
     if (request.method === 'POST' && path === '/generate') {
       const resp = await callAnthropic(env, await request.json());

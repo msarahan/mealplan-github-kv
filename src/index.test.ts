@@ -149,6 +149,38 @@ describe('PUT /recipes/:code', () => {
   });
 });
 
+// ── /history ─────────────────────────────────────────────────────────────────
+
+describe('GET /history/:code', () => {
+  it('returns empty array when not found', async () => {
+    const res = await SELF.fetch(`${BASE}/history/missing`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('returns stored history', async () => {
+    const history = [{ savedAt: 1234567890000, plan: { days: [] } }];
+    await env.NOURISH_KV.put('history:h1', JSON.stringify(history));
+    const res = await SELF.fetch(`${BASE}/history/h1`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(history);
+  });
+});
+
+describe('PUT /history/:code', () => {
+  it('stores history and returns ok', async () => {
+    const history = [{ savedAt: 9999999999000, plan: { days: [] } }];
+    const res = await SELF.fetch(`${BASE}/history/h2`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(history),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(JSON.parse((await env.NOURISH_KV.get('history:h2'))!)).toEqual(history);
+  });
+});
+
 // ── /parse-recipe ─────────────────────────────────────────────────────────────
 
 describe('POST /parse-recipe', () => {

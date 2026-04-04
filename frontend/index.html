@@ -406,6 +406,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <div class="opt-note">Drag to reorder. Top = highest priority.</div>
     </div>
     <button class="generate-btn" id="gen-btn" onclick="generatePlan()">&#10024; Generate my meal plan</button>
+    <button onclick="showHistoryModal()" style="display:block;width:100%;margin-top:8px;padding:9px;background:none;border:1.5px solid var(--sand-dark);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--ink-mid);cursor:pointer">&#128337; Plan history</button>
   </div>
 
   <!-- Plan -->
@@ -432,6 +433,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 
 <div id="toast"></div>
 <div id="src-popover"></div>
+
+<!-- History modal -->
+<div class="modal-bg" id="history-modal">
+  <div class="modal" style="max-height:75vh;display:flex;flex-direction:column">
+    <h3>Plan history</h3>
+    <div id="history-list" style="overflow-y:auto;flex:1;margin:10px 0"></div>
+    <div class="modal-actions">
+      <button class="primary" onclick="closeHistoryModal()">Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- Household modal -->
 <div class="modal-bg" id="hh-modal">
@@ -495,6 +507,7 @@ var leftoverLunches = 0;
 var checkedItems    = new Set();
 var customItems     = [];
 var savedRecipes    = [];
+var planHistory     = [];
 var pinnedMeals     = {};
 var recipeFilter    = 'all';
 var pickerTarget    = null;
@@ -666,6 +679,7 @@ function loadFamily(key, name) {
   pullPlan();
   pullChecks();
   pullRecipes();
+  pullHistory();
 }
 function enterApp() {
   document.getElementById('hh-screen').style.display = 'none';
@@ -970,6 +984,48 @@ function startSync(){
 async function pullRecipes(){ try{ var r=await kvGet('/recipes/'+householdCode); if(Array.isArray(r)){savedRecipes=r;renderRecipesTab();} }catch(e){} }
 function pushRecipes(){ if(householdCode) kvPut('/recipes/'+householdCode,savedRecipes); }
 
+// ── Plan history KV ───────────────────────────────────────────────────────────
+async function pullHistory(){ try{ var h=await kvGet('/history/'+householdCode); if(Array.isArray(h)) planHistory=h; }catch(e){} }
+function pushHistory(){ if(householdCode) kvPut('/history/'+householdCode,planHistory); }
+function saveToHistory(plan){
+  if(!plan||!plan.days||!plan.days.length) return;
+  planHistory.unshift({savedAt:Date.now(),plan:plan});
+  if(planHistory.length>10) planHistory=planHistory.slice(0,10);
+  pushHistory();
+}
+
+// ── History modal ─────────────────────────────────────────────────────────────
+function showHistoryModal(){ renderHistoryList(); document.getElementById('history-modal').classList.add('open'); }
+function closeHistoryModal(){ document.getElementById('history-modal').classList.remove('open'); }
+function renderHistoryList(){
+  var el=document.getElementById('history-list');
+  if(!planHistory.length){ el.innerHTML='<p style="color:var(--ink-light);font-size:13px;text-align:center;padding:20px 0">No saved plans yet.<br>Generate a plan to start building history.</p>'; return; }
+  el.innerHTML=planHistory.map(function(entry,i){
+    var d=new Date(entry.savedAt);
+    var label=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+    var days=entry.plan&&entry.plan.days?entry.plan.days.length+'':'?';
+    var meals=entry.plan&&entry.plan.days?entry.plan.days.reduce(function(n,day){return n+(day.meals?day.meals.length:0);},0):'?';
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--sand)">'
+      +'<div><div style="font-size:13px;font-weight:500;color:var(--ink)">'+esc(label)+'</div>'
+      +'<div style="font-size:11px;color:var(--ink-light)">'+days+' days &middot; '+meals+' meals</div></div>'
+      +'<button style="padding:6px 14px;background:var(--sage);color:white;border:none;border-radius:var(--radius-sm);font-family:\'DM Sans\',sans-serif;font-size:12px;cursor:pointer;white-space:nowrap" onclick="restoreFromHistory('+i+')">Restore</button>'
+      +'</div>';
+  }).join('');
+}
+function restoreFromHistory(idx){
+  var entry=planHistory[idx]; if(!entry) return;
+  if(currentPlan&&currentPlan.days&&currentPlan.days.length){
+    if(!confirm('Restore this plan? Your current plan will be saved to history first.')) return;
+    saveToHistory(currentPlan);
+  }
+  currentPlan=entry.plan;
+  renderPlan(currentPlan);
+  if(currentPlan.groceryList) renderGrocery();
+  pushPlan(currentPlan);
+  closeHistoryModal();
+  switchTab('plan');
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
 async function callClaude(prompt, maxTokens) {
   var payload={model:'claude-sonnet-4-20250514',max_tokens:maxTokens,
@@ -1113,7 +1169,8 @@ function progHTML(step){
 // ── Generate ──────────────────────────────────────────────────────────────────
 async function generatePlan() {
   if (currentPlan && currentPlan.days && currentPlan.days.length) {
-    if (!confirm('Replace the current plan? This cannot be undone.')) return;
+    if (!confirm('Replace the current plan? The existing plan will be saved to history.')) return;
+    saveToHistory(currentPlan);
   }
   var btn=document.getElementById('gen-btn');
   btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Generating...';
