@@ -918,16 +918,20 @@ function buildGroceryPrompt(plan) {
     });
   });
   return 'Produce a consolidated US grocery list for these meals.\n\n'+lines
-    +'\nRULES: Scale by serving count, consolidate duplicates, express as US grocery store units:'
+    +'\nRULES: Scale by serving count, consolidate duplicates.'
+    +'\n- For fresh/packaged goods use grocery store units:'
     +' broccoli (1 head), garlic (1 bulb), onions (3 lb bag), carrots (1 lb bag), spinach (5 oz bag),'
     +' mushrooms (8 oz pkg), cherry tomatoes (1 pint), avocado/bell pepper/lemon/zucchini (1 each),'
     +' ground meat (1 lb), chicken breasts (~1.5 lb pack), salmon (~6 oz fillet),'
     +' canned beans/chickpeas (15 oz can), eggs (1 dozen), Greek yogurt (32 oz),'
-    +' butter (1 lb box), shredded cheese (8 oz bag), olive oil (16 fl oz),'
+    +' butter (1 lb box), shredded cheese (8 oz bag),'
     +' canned tomatoes (14.5 oz), broth (32 oz carton), pasta (1 lb), rice (2 lb bag), oats (42 oz canister).'
     +' List full package even if only part is needed.'
+    +'\n- For Pantry items (oils, vinegars, syrups, sauces, condiments, spices, nutritional yeast, etc.):'
+    +' show the TOTAL RECIPE QUANTITY needed in cooking units (e.g. "¾ cup", "3 tbsp", "2 tsp"),'
+    +' NOT bottle/container sizes. Users may have a partial bottle and need to know the amount to check.'
     +'\n\nReturn ONLY valid JSON:'
-    +'{"groceryList":[{"name":"Rolled oats","qty":"42 oz canister","category":"Grains & Bread"}]}'
+    +'{"groceryList":[{"name":"Rolled oats","qty":"42 oz canister","category":"Grains & Bread"},{"name":"Olive oil","qty":"¾ cup","category":"Pantry"}]}'
     +'\nCategories: Produce, Protein, Dairy & Eggs, Grains & Bread, Pantry, Canned & Preserved, Nuts & Seeds, Herbs & Spices, Frozen, Other.';
 }
 
