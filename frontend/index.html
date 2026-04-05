@@ -1147,8 +1147,9 @@ function buildPrompt() {
     +'\nDAILY TARGETS: ~'+cal+' kcal, ~'+pro+'g protein, ~'+carb+'g carbs\n\n'
     +optLines
     +'\n\nINGREDIENT UNITS: US customary (cups, tbsp, tsp, oz, lb). Ingredients are for 1 serving.'
+    +'\n\nsharedPrepTips: 3-5 actionable batch-prep tasks with exact quantities needed across ALL meals (e.g. "Chop 4 cups onion — used in Mon dinner, Wed lunch, Thu dinner"). Include the total amount and which meals use it.'
     +'\n\nReturn ONLY valid JSON:'
-    +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":["tip1"]},'
+    +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":["Cook 3 cups brown rice — used in Mon lunch, Wed dinner, Fri lunch","Chop 4 cups onion — used in Mon dinner, Tue lunch, Thu dinner"]},'
     +'"days":[{"dayName":"Monday","meals":[{"type":"breakfast","name":"Oatmeal","tags":["quick"],'
     +'"prepMins":10,"calories":380,"protein":12,"carbs":58,'
     +'"ingredients":["1 cup rolled oats","1/2 cup blueberries"],'
