@@ -1142,7 +1142,7 @@ function buildPrompt() {
         if(id==='variety')         desc='Use different cuisines, proteins, cooking styles each day';
         return '  Priority '+(i+1)+' (weight '+w+'): '+desc;
       }).join('\n');
-  if (leftoverLunches>0) optLines+='\nLEFTOVER LUNCHES: mark exactly '+leftoverLunches+' weekday dinner(s) with "leftoversForLunch":true';
+  if (leftoverLunches>0) optLines+='\nLEFTOVER LUNCHES: Include exactly '+leftoverLunches+' leftover lunch(es). For each: mark the source dinner with "leftoversForLunch":true AND replace an appropriate LATER weekday lunch slot with {"type":"lunch","name":"[dinner name]","isLeftover":true,"sourceDinner":"[dinner name]"}. Choose the leftover day based on food safety and taste quality — fish/seafood within 2 days, poultry/meat within 3 days, vegetarian/grains/legumes within 4-5 days. The leftover does NOT have to be the very next day.';
   return dietSection+'\n\nMEALS PER DAY: '+types.join(', ')+'\nDAYS: '+planDays
     +'\nDAILY TARGETS: ~'+cal+' kcal, ~'+pro+'g protein, ~'+carb+'g carbs\n\n'
     +optLines
@@ -1150,11 +1150,8 @@ function buildPrompt() {
     +'\n\nsharedPrepTips: 3-5 batch-prep tasks as structured objects with fields: task (action + total quantity), keepsDays (integer — how many days it stays safe to eat refrigerated), qualityNote (optional — when texture/flavour starts to degrade before it becomes unsafe), meals (array of "DayName type" strings listing every meal in the plan that uses it).'
     +'\n\nReturn ONLY valid JSON:'
     +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":[{"task":"Cook 3 cups brown rice","keepsDays":5,"qualityNote":"may dry out by day 4","meals":["Monday lunch","Wednesday dinner","Friday lunch"]},{"task":"Chop 4 cups onion","keepsDays":5,"qualityNote":"may soften slightly by day 4","meals":["Monday dinner","Tuesday lunch","Thursday dinner"]}]},'
-    +'"days":[{"dayName":"Monday","meals":[{"type":"breakfast","name":"Oatmeal","tags":["quick"],'
-    +'"prepMins":10,"calories":380,"protein":12,"carbs":58,'
-    +'"ingredients":["1 cup rolled oats","1/2 cup blueberries"],'
-    +'"steps":["Bring 1.5 cups water to boil.","Stir in oats, cook 5 min.","Top with berries."],'
-    +'"leftoversForLunch":false,"prepNote":null,"batchNote":null}]}]}'
+    +'"days":[{"dayName":"Monday","meals":[{"type":"dinner","name":"Chicken Stir-Fry","leftoversForLunch":true,"tags":["quick"],"prepMins":20,"calories":520,"protein":38,"carbs":45,"ingredients":["6 oz chicken breast"],"steps":["Cook chicken."],"prepNote":null,"batchNote":null}]},'
+    +'{"dayName":"Wednesday","meals":[{"type":"lunch","name":"Chicken Stir-Fry","isLeftover":true,"sourceDinner":"Chicken Stir-Fry"},{"type":"dinner","name":"Oatmeal","tags":["quick"],"prepMins":10,"calories":380,"protein":12,"carbs":58,"ingredients":["1 cup rolled oats"],"steps":["Cook oats."],"leftoversForLunch":false,"prepNote":null,"batchNote":null}]}]}'
     +'\n\nDo NOT include groceryList. Ingredients 5-8 per meal. Steps 3-6. Realistic calories.';
 }
 
@@ -1252,7 +1249,6 @@ async function generatePlan() {
   pc.innerHTML=progHTML(0); startProg(0);
   try {
     var plan=await callClaude(buildPrompt(),9000);
-    if(leftoverLunches>0) plan=injectLeftovers(plan);
     currentPlan=plan; renderPlan(plan);
     await checkAndFixFreshness(plan);
     var sub=document.getElementById('prog-sub'); if(sub) sub.textContent='Building grocery list...';
@@ -1511,13 +1507,15 @@ function renderPlan(plan) {
 function syncLeftoverName(di,mi){
   var meal=currentPlan.days[di].meals[mi];
   if(!meal.leftoversForLunch) return;
-  if(di+1>=currentPlan.days.length) return;
-  var nextMeals=currentPlan.days[di+1].meals;
-  for(var nmi=0;nmi<nextMeals.length;nmi++){
-    if(nextMeals[nmi].isLeftover){
-      nextMeals[nmi].name=meal.name;
-      nextMeals[nmi].sourceDinner=meal.name;
-      break;
+  // Search all subsequent days for a leftover card sourced from the old name
+  for(var sdi=di+1;sdi<currentPlan.days.length;sdi++){
+    var dayMeals=currentPlan.days[sdi].meals;
+    for(var nmi=0;nmi<dayMeals.length;nmi++){
+      if(dayMeals[nmi].isLeftover){
+        dayMeals[nmi].name=meal.name;
+        dayMeals[nmi].sourceDinner=meal.name;
+        return;
+      }
     }
   }
 }
