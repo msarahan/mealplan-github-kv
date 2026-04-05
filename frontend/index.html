@@ -1501,10 +1501,13 @@ function renderPlan(plan) {
     html+='<div class="plan-day"'+(isToday?' id="plan-day-today"':'')+'>'+
       '<div class="day-name">'+esc(day.dayName)+(isToday?' <span class="today-badge">today</span>':'')+' </div>';
     if(_dayPrepMap[di]&&_dayPrepMap[di].length){
+      var anyNightBefore=_dayPrepMap[di].some(function(e){return e.nightBefore;});
       html+='<div class="day-prep-box"><div class="day-prep-title">&#9201; Batch prep today</div>';
-      _dayPrepMap[di].forEach(function(tip){
-        html+='<div class="day-prep-task">'+esc(tip.task)
-          +(tip.keepsDays?' <span style="font-size:11px;color:var(--ink-light)">— keeps '+tip.keepsDays+' days</span>':'')
+      if(anyNightBefore) html+='<div style="font-size:11px;color:var(--sage-dark);margin-bottom:4px;font-style:italic">Some of these can (or should) be done the night before to be ready for today\'s lunch.</div>';
+      _dayPrepMap[di].forEach(function(entry){
+        html+='<div class="day-prep-task">'+esc(entry.tip.task)
+          +(entry.tip.keepsDays?' <span style="font-size:11px;color:var(--ink-light)">— keeps '+entry.tip.keepsDays+' days</span>':'')
+          +(entry.nightBefore?' <span style="font-size:11px;color:var(--sage-dark);font-weight:500">(night before)</span>':'')
           +'</div>';
       });
       html+='</div>';
@@ -1542,9 +1545,17 @@ function buildDayPrepMap(plan) {
       });
     });
     if(minDi===Infinity) return;
-    var prepDi=(firstType==='lunch'&&minDi>0)?minDi-1:minDi;
+    // If first use is lunch and there's a previous day in the plan, prep then.
+    // If first use is lunch but it's the very first plan day (no previous day),
+    // keep it on day 0 and flag it as "night before" so the UI can call it out.
+    var nightBefore=false;
+    var prepDi=minDi;
+    if(firstType==='lunch'){
+      if(minDi>0){ prepDi=minDi-1; }
+      else { nightBefore=true; } // day 0 lunch — can only prep the night before
+    }
     if(!map[prepDi]) map[prepDi]=[];
-    map[prepDi].push(tip);
+    map[prepDi].push({tip:tip,nightBefore:nightBefore});
   });
   return map;
 }
