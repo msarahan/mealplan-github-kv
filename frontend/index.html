@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Nourish - Smart Meal Planner</title>
+<title>Plan Appétit</title>
 <script src="/version.js"></script>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#4a7c59">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Nourish">
+<meta name="apple-mobile-web-app-title" content="Plan Appétit">
 <link rel="apple-touch-icon" href="/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
@@ -320,7 +320,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 <div id="hh-screen">
   <div class="hh-setup">
     <div style="font-size:44px;margin-bottom:10px">&#127807;</div>
-    <h2>Welcome to Nourish</h2>
+    <h2>Welcome to Plan Appétit</h2>
     <p>Enter your family name to get started. Anyone who uses the same name shares your plan.</p>
     <div class="hh-input-row">
       <input type="text" id="family-name-input" placeholder="e.g. Sarahan" autocomplete="off"
@@ -340,7 +340,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 <div id="app" style="display:none">
   <div class="header">
     <div class="header-row">
-      <div class="logo">Nourish<span>.</span></div>
+      <div class="logo">Plan App<span>étit</span></div>
       <div class="hh-chip" onclick="showHHModal()" id="hh-chip">
         <span class="sync-dot" id="sync-dot"></span>
         <span id="hh-code-display">----</span>
@@ -460,7 +460,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 <div class="modal-bg" id="hh-modal">
   <div class="modal">
     <h3>Your household</h3>
-    <p>Tell family to open Nourish and enter the name <strong id="modal-code">----</strong> to share your plan.</p>
+    <p>Tell family to open Plan Appétit and enter the name <strong id="modal-code">----</strong> to share your plan.</p>
     <div class="modal-actions">
       <button onclick="switchFamily()">&#8635; Switch</button>
       <button onclick="leaveHousehold()" style="color:#c0392b">Leave</button>
