@@ -1297,15 +1297,11 @@ function injectLeftovers(plan) {
 // ── Backfill bar ──────────────────────────────────────────────────────────────
 function updateBackfillBar() {
   var bar=document.getElementById('backfill-bar'); if(!bar||!currentPlan) return;
-  var pinCount=Object.keys(pinnedMeals).length;
   var placeholders=0;
   currentPlan.days.forEach(function(day){ day.meals.forEach(function(m){ if(m._placeholder) placeholders++; }); });
-  if(pinCount>0||placeholders>0){
+  if(placeholders>0){
     bar.style.display='flex';
-    var msg=pinCount+' meal'+(pinCount!==1?'s':'')+' pinned.';
-    if(placeholders>0) msg+=' '+placeholders+' slot'+(placeholders!==1?'s':'')+' to fill.';
-    else msg+=' Tap to rebalance the rest.';
-    bar.querySelector('p').textContent=msg;
+    bar.querySelector('p').textContent=placeholders+' slot'+(placeholders!==1?'s':'')+' to fill.';
   } else {
     bar.style.display='none';
   }
@@ -1319,18 +1315,17 @@ async function backfillPlan() {
   var carb=document.getElementById('carbs-target').value;
   var pinnedSummary='', slotsToFill=[];
   currentPlan.days.forEach(function(day,di){
-    var dayPinned=[];
+    var dayExisting=[];
     day.meals.forEach(function(meal,mi){
-      var key=di+'-'+mi;
-      if(pinnedMeals[key]||meal.pinned){
-        dayPinned.push(meal.type+': '+meal.name+(meal.calories?' ('+meal.calories+' kcal, '+meal.protein+'g protein, '+meal.carbs+'g carbs)':''));
-      } else {
+      if(meal._placeholder){
         slotsToFill.push({di:di,mi:mi,type:meal.type,dayName:day.dayName});
+      } else if(!meal.isLeftover){
+        dayExisting.push(meal.type+': '+meal.name+(meal.calories?' ('+meal.calories+' kcal, '+meal.protein+'g protein, '+meal.carbs+'g carbs)':''));
       }
     });
-    if(dayPinned.length) pinnedSummary+=day.dayName+' (pinned): '+dayPinned.join('; ')+'\n';
+    if(dayExisting.length) pinnedSummary+=day.dayName+': '+dayExisting.join('; ')+'\n';
   });
-  if(slotsToFill.length===0){ alert('All meals are pinned. Unpin some to let Claude fill them.'); btn.disabled=false; btn.textContent='Backfill remaining meals'; return; }
+  if(slotsToFill.length===0){ alert('No empty slots to fill.'); btn.disabled=false; btn.textContent='Backfill remaining meals'; return; }
   try {
     var result=await callClaude(buildBackfillPrompt(pinnedSummary,slotsToFill,cal,pro,carb),6000);
     if(!result.meals) throw new Error('No meals returned');
@@ -1358,15 +1353,13 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   var dispSrv=mealServings[di+'-'+mi]||cookSrv;
   meal._cookSrv=cookSrv;
   if(meal.ingredients&&!meal._baseIngs) meal._baseIngs=meal.ingredients.slice();
-  var isPinned=!!(pinnedMeals[di+'-'+mi]||meal.pinned);
 
-  var html='<div class="meal-card'+(isPinned?' pinned':'')+(startOpen?' open':'')+'" id="meal-'+di+'-'+mi+'">'
+  var html='<div class="meal-card'+(startOpen?' open':'')+'" id="meal-'+di+'-'+mi+'">'
     +'<div class="meal-card-header" onclick="toggleMealCard(this)">'
     +'<div class="meal-card-left">'
     +'<span class="meal-type-badge '+type+'">'+type+'</span>'
     +'<span class="meal-name">'+esc(meal.name||'')+'</span>'
     +'</div>';
-  if(isPinned)            html+='<span class="pinned-badge">&#x1F4CC;</span>';
   if(meal.leftoversForLunch) html+='<span class="extra-badge">+lunch</span>';
   html+='<span class="meal-expand">&#8964;</span></div><div class="meal-detail">';
 
@@ -1406,14 +1399,8 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   if(meal.batchNote) html+='<div class="prep-note batch"><span class="pn-icon">&#127859;</span><span class="pn-text">'+esc(meal.batchNote)+'</span></div>';
 
   html+='<div class="meal-action-row">';
-  if(isPinned){
-    html+='<button class="meal-act-btn sage" onclick="unpinMeal('+di+','+mi+')">&#x1F4CC; Unpin</button>';
-  } else {
-    html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+')">&#x1F504; Swap</button>';
-  }
-  if(!isPinned&&!meal.isLeftover){
-    html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
-  }
+  html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+')">&#x1F504; Swap</button>';
+  html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
   html+='</div></div></div>';
   return html;
 }
@@ -1446,6 +1433,21 @@ function renderPlan(plan) {
   updateBackfillBar();
 }
 
+// ── Leftover sync helper ──────────────────────────────────────────────────────
+function syncLeftoverName(di,mi){
+  var meal=currentPlan.days[di].meals[mi];
+  if(!meal.leftoversForLunch) return;
+  if(di+1>=currentPlan.days.length) return;
+  var nextMeals=currentPlan.days[di+1].meals;
+  for(var nmi=0;nmi<nextMeals.length;nmi++){
+    if(nextMeals[nmi].isLeftover){
+      nextMeals[nmi].name=meal.name;
+      nextMeals[nmi].sourceDinner=meal.name;
+      break;
+    }
+  }
+}
+
 // ── Swap ──────────────────────────────────────────────────────────────────────
 async function swapMeal(di,mi,btn,customPrompt){
   if(btn){ btn.disabled=true; btn.textContent='Finding...'; }
@@ -1461,10 +1463,19 @@ async function swapMeal(di,mi,btn,customPrompt){
     +',"ingredients":["1 cup item"],"steps":["Step 1."],"prepNote":null,"batchNote":null}';
   try{
     var data=await callClaude(prompt,700); data.type=meal.type;
+    data.leftoversForLunch=meal.leftoversForLunch||false;
     currentPlan.days[di].meals[mi]=data; delete mealServings[di+'-'+mi];
+    syncLeftoverName(di,mi);
     var card=document.getElementById('meal-'+di+'-'+mi);
     var tmp=document.createElement('div'); tmp.innerHTML=buildMealCardHTML(di,mi,data);
     card.parentNode.replaceChild(tmp.firstChild,card);
+    // Also re-render the downstream leftover card if it exists
+    if(data.leftoversForLunch&&di+1<currentPlan.days.length){
+      var nextDay=currentPlan.days[di+1];
+      nextDay.meals.forEach(function(nm,nmi){
+        if(nm.isLeftover){ var lc=document.getElementById('meal-'+(di+1)+'-'+nmi); if(lc){ var lt=document.createElement('div'); lt.innerHTML=buildMealCardHTML(di+1,nmi,nm); lc.parentNode.replaceChild(lt.firstChild,lc); } }
+      });
+    }
     pushPlan(currentPlan);
   }catch(e){ if(btn){ btn.textContent='Failed'; btn.disabled=false; } }
 }
@@ -1999,17 +2010,11 @@ function pinRecipe(recipeId){
   currentPlan.days[di].meals[mi]={
     type:existingMeal.type,name:recipe.name,tags:recipe.tags,prepMins:recipe.prepMins,
     calories:recipe.calories,protein:recipe.protein,carbs:recipe.carbs,fat:recipe.fat,
-    ingredients:recipe.ingredients,steps:recipe.steps,pinned:true,pinnedRecipeId:recipeId,
+    ingredients:recipe.ingredients,steps:recipe.steps,
     leftoversForLunch:existingMeal.leftoversForLunch||false,prepNote:null,batchNote:null
   };
-  pinnedMeals[di+'-'+mi]=recipeId;
-  closePicker(); renderPlan(currentPlan);
-}
-
-function unpinMeal(di,mi){
-  delete pinnedMeals[di+'-'+mi];
-  currentPlan.days[di].meals[mi]={type:currentPlan.days[di].meals[mi].type,name:'(to be filled)',_placeholder:true};
-  renderPlan(currentPlan); updateBackfillBar();
+  syncLeftoverName(di,mi);
+  closePicker(); renderPlan(currentPlan); pushPlan(currentPlan);
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
