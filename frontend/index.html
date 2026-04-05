@@ -154,6 +154,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .backfill-bar p{font-size:12px;color:var(--sage-dark);flex:1;line-height:1.4}
 .backfill-btn{padding:6px 12px;border-radius:var(--radius-sm);border:none;background:var(--sage);color:white;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .backfill-btn:disabled{background:var(--sage-mid);cursor:not-allowed}
+/* Day batch-prep reminder */
+.day-prep-box{background:#f0f6f2;border:1px solid var(--sage-mid);border-radius:var(--radius-sm);padding:8px 11px;margin-bottom:7px}
+.day-prep-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sage-dark);margin-bottom:4px}
+.day-prep-task{font-size:12px;color:var(--sage-dark);padding:1px 0 1px 13px;position:relative;line-height:1.4}
+.day-prep-task::before{content:'›';position:absolute;left:2px;font-weight:700}
 /* Day/meal */
 .plan-day{margin-bottom:16px}
 .day-name{font-family:'Lora',serif;font-size:15px;color:var(--ink);margin-bottom:7px}
@@ -1490,10 +1495,20 @@ function renderPlan(plan) {
     html+='</div>';
   }
   var _todayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
+  var _dayPrepMap=buildDayPrepMap(plan);
   plan.days.forEach(function(day,di){
     var isToday=day.dayName===_todayName;
     html+='<div class="plan-day"'+(isToday?' id="plan-day-today"':'')+'>'+
       '<div class="day-name">'+esc(day.dayName)+(isToday?' <span class="today-badge">today</span>':'')+' </div>';
+    if(_dayPrepMap[di]&&_dayPrepMap[di].length){
+      html+='<div class="day-prep-box"><div class="day-prep-title">&#9201; Batch prep today</div>';
+      _dayPrepMap[di].forEach(function(tip){
+        html+='<div class="day-prep-task">'+esc(tip.task)
+          +(tip.keepsDays?' <span style="font-size:11px;color:var(--ink-light)">— keeps '+tip.keepsDays+' days</span>':'')
+          +'</div>';
+      });
+      html+='</div>';
+    }
     day.meals.forEach(function(meal,mi){ html+=buildMealCardHTML(di,mi,meal,isToday); });
     html+='</div>';
   });
@@ -1501,6 +1516,37 @@ function renderPlan(plan) {
   updateBackfillBar();
   var todayEl=document.getElementById('plan-day-today');
   if(todayEl) setTimeout(function(){ todayEl.scrollIntoView({behavior:'smooth',block:'start'}); },50);
+}
+
+// ── Per-day batch prep map ────────────────────────────────────────────────────
+// Returns {dayIndex: [tip, ...]} indicating which tips to prep on each day.
+// Prep day = day of first use, except if first use is lunch → prep the day before.
+function buildDayPrepMap(plan) {
+  var tips=plan.summary&&plan.summary.sharedPrepTips;
+  if(!tips||!Array.isArray(tips)) return {};
+  var map={};
+  tips.forEach(function(tip){
+    if(typeof tip==='string'||!tip.meals||!tip.meals.length) return;
+    var minDi=Infinity, firstType='';
+    tip.meals.forEach(function(mealRef){
+      var refLower=mealRef.toLowerCase();
+      plan.days.forEach(function(day,di){
+        var dayLower=day.dayName.toLowerCase();
+        if(refLower.indexOf(dayLower)>=0||refLower.indexOf(dayLower.slice(0,3))>=0){
+          day.meals.forEach(function(meal){
+            if(!meal.isLeftover&&refLower.indexOf(meal.type)>=0&&di<minDi){
+              minDi=di; firstType=meal.type;
+            }
+          });
+        }
+      });
+    });
+    if(minDi===Infinity) return;
+    var prepDi=(firstType==='lunch'&&minDi>0)?minDi-1:minDi;
+    if(!map[prepDi]) map[prepDi]=[];
+    map[prepDi].push(tip);
+  });
+  return map;
 }
 
 // ── Leftover sync helper ──────────────────────────────────────────────────────
