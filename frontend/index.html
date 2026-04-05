@@ -1147,9 +1147,9 @@ function buildPrompt() {
     +'\nDAILY TARGETS: ~'+cal+' kcal, ~'+pro+'g protein, ~'+carb+'g carbs\n\n'
     +optLines
     +'\n\nINGREDIENT UNITS: US customary (cups, tbsp, tsp, oz, lb). Ingredients are for 1 serving.'
-    +'\n\nsharedPrepTips: 3-5 actionable batch-prep tasks with exact quantities, which meals use each item, and how long it keeps refrigerated once prepared (e.g. "Chop 4 cups onion — used in Mon dinner, Wed lunch, Thu dinner — keeps 5 days refrigerated"). Be specific about freshness: note if texture or quality degrades before it becomes unsafe.'
+    +'\n\nsharedPrepTips: 3-5 batch-prep tasks as structured objects with fields: task (action + total quantity), keepsDays (integer — how many days it stays safe to eat refrigerated), qualityNote (optional — when texture/flavour starts to degrade before it becomes unsafe), meals (array of "DayName type" strings listing every meal in the plan that uses it).'
     +'\n\nReturn ONLY valid JSON:'
-    +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":["Cook 3 cups brown rice — used in Mon lunch, Wed dinner, Fri lunch — keeps 5 days refrigerated","Chop 4 cups onion — used in Mon dinner, Tue lunch, Thu dinner — keeps 5 days refrigerated; may soften slightly by day 4"]},'
+    +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":[{"task":"Cook 3 cups brown rice","keepsDays":5,"qualityNote":"may dry out by day 4","meals":["Monday lunch","Wednesday dinner","Friday lunch"]},{"task":"Chop 4 cups onion","keepsDays":5,"qualityNote":"may soften slightly by day 4","meals":["Monday dinner","Tuesday lunch","Thursday dinner"]}]},'
     +'"days":[{"dayName":"Monday","meals":[{"type":"breakfast","name":"Oatmeal","tags":["quick"],'
     +'"prepMins":10,"calories":380,"protein":12,"carbs":58,'
     +'"ingredients":["1 cup rolled oats","1/2 cup blueberries"],'
@@ -1254,6 +1254,7 @@ async function generatePlan() {
     var plan=await callClaude(buildPrompt(),9000);
     if(leftoverLunches>0) plan=injectLeftovers(plan);
     currentPlan=plan; renderPlan(plan);
+    await checkAndFixFreshness(plan);
     var sub=document.getElementById('prog-sub'); if(sub) sub.textContent='Building grocery list...';
     var steps=document.querySelectorAll('.progress-step');
     if(steps[0]){steps[0].classList.remove('active');steps[0].classList.add('done');}
@@ -1271,6 +1272,67 @@ async function generatePlan() {
   } finally {
     btn.disabled=false; btn.innerHTML='&#10024; Generate my meal plan';
   }
+}
+
+// ── Freshness-order check ─────────────────────────────────────────────────────
+async function checkAndFixFreshness(plan) {
+  var tips=plan.summary&&plan.summary.sharedPrepTips;
+  if(!tips||!Array.isArray(tips)) return;
+  var violations=[];
+  tips.forEach(function(tip){
+    if(typeof tip==='string'||!tip.keepsDays||!tip.meals||!tip.meals.length) return;
+    var maxDi=-1, lastDayName='', lastType='';
+    tip.meals.forEach(function(mealRef){
+      var refLower=mealRef.toLowerCase();
+      plan.days.forEach(function(day,di){
+        var dayLower=day.dayName.toLowerCase();
+        if(refLower.indexOf(dayLower)>=0||refLower.indexOf(dayLower.slice(0,3))>=0){
+          day.meals.forEach(function(meal){
+            if(!meal.isLeftover&&refLower.indexOf(meal.type)>=0&&di>maxDi){
+              maxDi=di; lastDayName=day.dayName; lastType=meal.type;
+            }
+          });
+        }
+      });
+    });
+    // Day 0 = prep day (first day of plan). Last use must be within keepsDays.
+    if(maxDi>=tip.keepsDays) violations.push({tip:tip,di:maxDi,dayName:lastDayName,type:lastType});
+  });
+  if(!violations.length) return;
+  var violationDesc=violations.map(function(v){
+    return '"'+v.tip.task+'" keeps '+v.tip.keepsDays+' days but last used day '+(v.di+1)+' ('+v.dayName+' '+v.type+')';
+  }).join('\n');
+  var planDesc=plan.days.map(function(day,di){
+    return day.meals.filter(function(m){return !m.isLeftover;}).map(function(m){
+      return 'Day '+(di+1)+' ('+day.dayName+') '+m.type+': '+m.name;
+    }).join('\n');
+  }).join('\n');
+  var prompt='Meal plan has freshness violations:\n'+violationDesc
+    +'\n\nPlan:\n'+planDesc
+    +'\n\nSwap meals between days (same meal type only) to fix violations. Prefer the fewest swaps.'
+    +'\nReturn ONLY valid JSON: {"swaps":[{"fromDay":"Friday","fromType":"lunch","toDay":"Wednesday","toType":"lunch"}]}';
+  try {
+    var result=await callClaude(prompt,800);
+    if(!result.swaps||!result.swaps.length) return;
+    var fixed=[];
+    result.swaps.forEach(function(swap){
+      var fromDi=-1,toDi=-1,fromMi=-1,toMi=-1;
+      plan.days.forEach(function(day,di){ if(day.dayName===swap.fromDay) fromDi=di; if(day.dayName===swap.toDay) toDi=di; });
+      if(fromDi<0||toDi<0) return;
+      plan.days[fromDi].meals.forEach(function(m,mi){ if(m.type===swap.fromType&&!m.isLeftover) fromMi=mi; });
+      plan.days[toDi].meals.forEach(function(m,mi){ if(m.type===swap.toType&&!m.isLeftover) toMi=mi; });
+      if(fromMi<0||toMi<0) return;
+      var tmp=plan.days[fromDi].meals[fromMi];
+      plan.days[fromDi].meals[fromMi]=plan.days[toDi].meals[toMi];
+      plan.days[toDi].meals[toMi]=tmp;
+      syncLeftoverName(fromDi,fromMi); syncLeftoverName(toDi,toMi);
+      fixed.push(swap.fromDay+' '+swap.fromType+' ↔ '+swap.toDay+' '+swap.toType);
+    });
+    if(fixed.length){
+      renderPlan(plan);
+      showToast('Reordered '+fixed.length+' meal'+(fixed.length!==1?'s':'')+' to keep batch-prepped ingredients fresh');
+    }
+  } catch(e){ console.warn('Freshness reorder failed:',e); }
 }
 
 // ── Leftover injection ────────────────────────────────────────────────────────
@@ -1420,7 +1482,15 @@ function renderPlan(plan) {
     +'</div>';
   if(s.sharedPrepTips&&s.sharedPrepTips.length){
     html+='<div class="shared-prep-card"><div class="spc-title">&#127859; Batch prep session</div>';
-    s.sharedPrepTips.forEach(function(t){ html+='<div class="shared-prep-item">'+esc(t)+'</div>'; });
+    s.sharedPrepTips.forEach(function(t){
+      if(typeof t==='string'){ html+='<div class="shared-prep-item">'+esc(t)+'</div>'; return; }
+      html+='<div class="shared-prep-item">'
+        +'<strong>'+esc(t.task||'')+'</strong>'
+        +(t.meals&&t.meals.length?' <span style="color:var(--ink-mid)">— '+esc(t.meals.join(', '))+'</span>':'')
+        +(t.keepsDays?' <span style="color:var(--sage-dark);font-weight:500"> — keeps '+t.keepsDays+' days refrigerated</span>':'')
+        +(t.qualityNote?'<div style="font-size:11px;color:var(--ink-light);margin-top:2px">'+esc(t.qualityNote)+'</div>':'')
+        +'</div>';
+    });
     html+='</div>';
   }
   var _todayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
