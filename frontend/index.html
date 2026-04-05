@@ -1425,12 +1425,15 @@ function renderPlan(plan) {
   var _todayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
   plan.days.forEach(function(day,di){
     var isToday=day.dayName===_todayName;
-    html+='<div class="plan-day"><div class="day-name">'+esc(day.dayName)+(isToday?' <span class="today-badge">today</span>':'')+' </div>';
+    html+='<div class="plan-day"'+(isToday?' id="plan-day-today"':'')+'>'+
+      '<div class="day-name">'+esc(day.dayName)+(isToday?' <span class="today-badge">today</span>':'')+' </div>';
     day.meals.forEach(function(meal,mi){ html+=buildMealCardHTML(di,mi,meal,isToday); });
     html+='</div>';
   });
   pc.innerHTML=html;
   updateBackfillBar();
+  var todayEl=document.getElementById('plan-day-today');
+  if(todayEl) setTimeout(function(){ todayEl.scrollIntoView({behavior:'smooth',block:'start'}); },50);
 }
 
 // ── Leftover sync helper ──────────────────────────────────────────────────────
