@@ -1722,7 +1722,7 @@ function renderRecipesTab(){
   var filtered=savedRecipes.filter(function(r){ if(!q) return true; return r.tags&&r.tags.some(function(t){return t.toLowerCase().indexOf(q)>=0;}); });
   var html='<div class="recipe-add-bar">'
     +'<div class="recipe-add-row">'
-    +'<input class="recipe-add-input" id="recipe-url-input" type="url" placeholder="Paste recipe URL to import...">'
+    +'<textarea class="recipe-add-input tall" id="recipe-url-input" rows="1" placeholder="Paste recipe URLs to import (one per line)..."></textarea>'
     +'<button class="recipe-add-btn" id="parse-btn" onclick="parseRecipe()">Import</button>'
     +'</div>'
     +'<div class="recipe-add-row">'
@@ -1991,6 +1991,8 @@ async function parseRecipe(){
   var urlVal=urlEl?urlEl.value.trim():'';
   var txtVal=txtEl?txtEl.value.trim():'';
   if(!urlVal&&!txtVal){if(statusEl)statusEl.textContent='Enter a URL or paste recipe text.';return;}
+  var urls=urlVal.match(/https?:\/\/\S+/g)||[];
+  if(urls.length>1){ btn.disabled=true; await bulkImportRecipes(urls); btn.disabled=false; return; }
   btn.disabled=true; if(statusEl)statusEl.textContent='Fetching and parsing...';
   try{
     var recipe;
@@ -2016,6 +2018,50 @@ async function parseRecipe(){
     if(statusEl)statusEl.textContent='Added: '+recipe.name;
   }catch(e){if(statusEl)statusEl.textContent='Error: '+e.message;}
   btn.disabled=false;
+}
+
+// Dedup key for imported URLs: Mealime links vary (/print or not), so key on the recipe id
+function recipeUrlKey(url){
+  var m=(url||'').match(/mealime\.com\/recipe_variants\/(\d+)/i);
+  return m?'mealime:'+m[1]:(url||'').replace(/\/+$/,'').toLowerCase();
+}
+
+async function bulkImportRecipes(urls){
+  function setStatus(t){ var el=document.getElementById('parse-status'); if(el) el.textContent=t; }
+  if(!WORKER_ON){ setStatus('URL import requires the Worker.'); return; }
+  var notesEl=document.getElementById('recipe-notes-input');
+  var notesVal=notesEl?notesEl.value.trim():'';
+  var shareChk=document.getElementById('recipe-share-chk');
+  var doShare=shareChk&&shareChk.checked;
+  var seen={}; urls=urls.filter(function(u){ var k=recipeUrlKey(u); if(seen[k]) return false; seen[k]=true; return true; });
+  var added=[], skipped=0, failed=[];
+  for(var i=0;i<urls.length;i++){
+    var url=urls[i];
+    setStatus('Importing '+(i+1)+' of '+urls.length+'… ('+added.length+' added)');
+    if(savedRecipes.some(function(r){ return r.sourceUrl&&recipeUrlKey(r.sourceUrl)===recipeUrlKey(url); })){ skipped++; continue; }
+    try{
+      var resp=await fetch(WORKER_URL+'/parse-recipe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})});
+      var recipe=await resp.json();
+      if(recipe.error) throw new Error(recipe.error.message||recipe.error);
+      if(!recipe.name) throw new Error('No recipe found');
+      if(savedRecipes.some(function(r){ return r.name.toLowerCase()===recipe.name.toLowerCase(); })){ skipped++; continue; }
+      recipe.id='r-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+      recipe.mealTypes=recipe.mealTypes||[]; recipe.savedAt=Date.now();
+      recipe.sourceUrl=url; recipe.notes=notesVal||recipe.notes||'';
+      savedRecipes.unshift(recipe); pushRecipes();  // save as we go so a closed tab keeps progress
+      if(doShare) shareRecipeToGlobal(recipe);
+      added.push(recipe.name);
+    }catch(e){ failed.push({url:url,msg:e.message}); }
+  }
+  renderRecipesTab();
+  var msg='Added '+added.length+' of '+urls.length+' recipes';
+  if(skipped) msg+=' · '+skipped+' already saved';
+  if(failed.length){
+    msg+=' · '+failed.length+' failed (left in the box to retry): '+failed.map(function(f){return f.msg;}).join('; ');
+    var urlEl=document.getElementById('recipe-url-input');
+    if(urlEl) urlEl.value=failed.map(function(f){return f.url;}).join('\n');
+  }
+  setStatus(msg);
 }
 
 async function parsePdfRecipe(input){

@@ -29,6 +29,63 @@ async function callAnthropic(env, payload) {
   return resp;
 }
 
+// ── Mealime import ────────────────────────────────────────────────────────────
+// Mealime recipe pages (app.mealime.com/recipe_variants/:id) only resolve at /print,
+// which is public HTML with a stable structure. Pantry staples have no quantity in the
+// shopping list; their amounts appear only in each step's <pre> block.
+const MEALIME_RE = /^https?:\/\/(?:app\.)?mealime\.com\/recipe_variants\/(\d+)/i;
+
+export function normalizeRecipeUrl(url) {
+  const m = url.match(MEALIME_RE);
+  return m ? `https://app.mealime.com/recipe_variants/${m[1]}/print` : url;
+}
+
+function decodeEntities(s) {
+  return s.replace(/&nbsp;?/g, ' ').replace(/&amp;/g, '&').replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
+function stripTags(s) {
+  return decodeEntities(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+export function extractMealime(html) {
+  const title = html.match(/<h1>([\s\S]*?)<\/h1>/);
+  const stepBlocks = [...html.matchAll(/<li class="instruction">([\s\S]*?)<\/li>/g)];
+  if (!title || !stepBlocks.length) return null;
+  const desc = html.match(/<p class="description">([\s\S]*?)<\/p>/);
+
+  const items = [...html.matchAll(/<li class="line-item">([\s\S]*?)<\/li>/g)].map(m => {
+    const q = m[1].match(/<div class="quantity">([\s\S]*?)<\/div>/);
+    const n = m[1].match(/<div class="ingredient">([\s\S]*?)<\/div>/);
+    return '- ' + ((q ? stripTags(q[1]) : '') + ' ' + (n ? stripTags(n[1]) : '')).trim();
+  });
+
+  const steps = stepBlocks.map((m, i) => {
+    const primary = m[1].match(/<div class="primary">([\s\S]*?)<\/div>/);
+    const pre = m[1].match(/<pre>([\s\S]*?)<\/pre>/);
+    let s = `${i + 1}. ${primary ? stripTags(primary[1]) : ''}`;
+    if (pre) {
+      const uses = decodeEntities(pre[1].replace(/<[^>]+>/g, ''))
+        .split('\n').map(x => x.trim()).filter(Boolean);
+      s += '\n   Uses: ' + uses.join('; ');
+    }
+    return s;
+  });
+
+  return `Recipe: ${stripTags(title[1])}
+Time and servings: ${desc ? stripTags(desc[1]) : 'unknown'}
+
+Shopping list (pantry staples are listed without quantities):
+${items.join('\n')}
+
+Steps:
+${steps.join('\n')}
+
+Note: The "Uses" lines give exact amounts per step. An ingredient's total amount is the SUM
+of its amounts across all "Uses" lines (e.g. salt used in two steps). Use those totals
+(then divide per serving) for the ingredients list. Omit cookware.`;
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
@@ -103,12 +160,13 @@ export default {
 
       if (body.url && !sourceText) {
         try {
-          const pageResp = await fetch(body.url, {
+          const pageResp = await fetch(normalizeRecipeUrl(body.url), {
             headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NourishBot/1.0)' },
           });
+          if (!pageResp.ok) return err('Could not fetch URL: HTTP ' + pageResp.status);
           const html = await pageResp.text();
           // Strip tags, collapse whitespace, truncate to ~8000 chars
-          sourceText = html
+          sourceText = (MEALIME_RE.test(body.url) && extractMealime(html)) || html
             .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
             .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
             .replace(/<[^>]+>/g, ' ')
