@@ -1,5 +1,6 @@
 import { env, SELF } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
+import { extractMealime, normalizeRecipeUrl } from './index';
 
 const BASE = 'http://example.com';
 
@@ -192,6 +193,40 @@ describe('POST /parse-recipe', () => {
     });
     expect(res.status).toBe(400);
     expect((await res.json() as any).error).toBeTruthy();
+  });
+});
+
+describe('Mealime import', () => {
+  it('normalizes recipe_variants links to the public print page', () => {
+    expect(normalizeRecipeUrl('https://app.mealime.com/recipe_variants/10694'))
+      .toBe('https://app.mealime.com/recipe_variants/10694/print');
+    expect(normalizeRecipeUrl('https://app.mealime.com/recipe_variants/10694/print'))
+      .toBe('https://app.mealime.com/recipe_variants/10694/print');
+    expect(normalizeRecipeUrl('https://example.com/pasta')).toBe('https://example.com/pasta');
+  });
+
+  it('extracts title, shopping list and per-step amounts from a print page', () => {
+    const html = `<div class="meal-header"><h1>Mini Glazed Meatloaves &amp; Carrots</h1></div>
+      <p class="description">40 minutes | 4 servings</p>
+      <ul><li class="cookware"><a href="#">muffin pan</a></li></ul>
+      <ul><li class="line-item"><div class="quantity">2</div><div class="ingredient">eggs</div></li>
+      <li class="line-item"><div class="quantity">&nbsp</div><div class="ingredient">salt</div></li></ul>
+      <ul><li class="instruction"><div class="number">1</div><div class="content"><div class="primary">Mix it.</div>
+      <div class="secondary"><pre>2 eggs
+1 tsp salt</pre></div></div></li>
+      <li class="instruction"><div class="number">2</div><div class="content"><div class="primary">Season carrots.</div>
+      <div class="secondary"><pre>⅛ tsp salt</pre></div></div></li></ul>`;
+    const text = extractMealime(html)!;
+    expect(text).toContain('Recipe: Mini Glazed Meatloaves & Carrots');
+    expect(text).toContain('40 minutes | 4 servings');
+    expect(text).toContain('- 2 eggs\n- salt');
+    expect(text).toContain('1. Mix it.\n   Uses: 2 eggs; 1 tsp salt');
+    expect(text).toContain('2. Season carrots.\n   Uses: ⅛ tsp salt');
+    expect(text).not.toContain('muffin pan');
+  });
+
+  it('returns null for pages that are not Mealime recipes', () => {
+    expect(extractMealime('<html><body>Page not found</body></html>')).toBeNull();
   });
 });
 
