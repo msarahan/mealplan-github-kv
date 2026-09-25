@@ -1,6 +1,6 @@
 import { env, SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
-import { extractMealime, normalizeRecipeUrl } from './index';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { extractMealime, normalizeRecipeUrl, MODEL } from './index';
 
 const BASE = 'http://example.com';
 
@@ -193,6 +193,54 @@ describe('POST /parse-recipe', () => {
     });
     expect(res.status).toBe(400);
     expect((await res.json() as any).error).toBeTruthy();
+  });
+});
+
+describe('Anthropic calls', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function mockAnthropic(response: object) {
+    const calls: { headers: Headers; body: any }[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init?: any) => {
+      calls.push({ headers: new Headers(init?.headers), body: JSON.parse(init?.body) });
+      return new Response(JSON.stringify(response), { headers: { 'Content-Type': 'application/json' } });
+    });
+    return calls;
+  }
+  const parseText = () => SELF.fetch(`${BASE}/parse-recipe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Toast: toast bread.' }),
+  });
+
+  it('uses the current model with fallbacks and room for thinking, and skips thinking blocks', async () => {
+    const calls = mockAnthropic({
+      stop_reason: 'end_turn',
+      content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: '{"name":"Toast"}' }],
+    });
+    const res = await parseText();
+    expect(await res.json()).toEqual({ name: 'Toast' });
+    expect(calls[0].body.model).toBe(MODEL);
+    expect(calls[0].body.fallbacks).toBe('default');
+    expect(calls[0].body.max_tokens).toBeGreaterThanOrEqual(16000);
+    expect(calls[0].headers.get('anthropic-beta')).toBe('server-side-fallback-2026-07-01');
+  });
+
+  it('/generate overrides a stale model from the client', async () => {
+    const calls = mockAnthropic({ stop_reason: 'end_turn', content: [] });
+    await SELF.fetch(`${BASE}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 100, messages: [] }),
+    });
+    expect(calls[0].body.model).toBe(MODEL);
+  });
+
+  it('reports a refusal instead of parsing it', async () => {
+    mockAnthropic({ stop_reason: 'refusal', content: [] });
+    const res = await parseText();
+    expect(res.status).toBe(400);
+    expect((await res.json() as any).error).toContain('declined');
   });
 });
 
