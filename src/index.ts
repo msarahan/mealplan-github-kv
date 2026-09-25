@@ -16,6 +16,10 @@ function json(data, status) {
 }
 function err(msg, status) { return json({ error: msg }, status || 400); }
 
+// Single place to change the model when Anthropic retires one. The Worker overrides
+// whatever model the frontend sends, so /generate follows this too.
+export const MODEL = 'claude-opus-5';
+
 async function callAnthropic(env, payload) {
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -23,10 +27,21 @@ async function callAnthropic(env, payload) {
       'Content-Type': 'application/json',
       'x-api-key': env.ANTHROPIC_API_KEY,
       'anthropic-version': '2023-06-01',
+      // If Claude declines a request, re-run it server-side on Anthropic's recommended fallback
+      'anthropic-beta': 'server-side-fallback-2026-07-01',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, model: MODEL, fallbacks: 'default' }),
   });
   return resp;
+}
+
+// Pull the JSON object out of a Messages API response (thinking blocks have no .text)
+function extractJson(data) {
+  if (data.stop_reason === 'refusal') throw new Error('Claude declined this request');
+  const raw = data.content.map(b => b.text || '').join('');
+  const start = raw.indexOf('{'), end = raw.lastIndexOf('}');
+  if (start === -1) throw new Error('No JSON in response');
+  return JSON.parse(raw.slice(start, end + 1));
 }
 
 // ── Mealime import ────────────────────────────────────────────────────────────
@@ -211,21 +226,17 @@ TEXT:
 ${sourceText}`;
 
       const resp = await callAnthropic(env, {
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
+        max_tokens: 16000,  // caps thinking + answer together
+        output_config: { effort: 'low' },
         system: 'You are a JSON API. Output ONLY raw JSON, no markdown, no explanation.',
         messages: [{ role: 'user', content: prompt }],
       });
       const data = await resp.json();
       if (data.error) return json(data, resp.status);
-      const raw = data.content.map(b => b.text || '').join('');
-      const start = raw.indexOf('{'), end = raw.lastIndexOf('}');
-      if (start === -1) return err('Could not parse recipe from page');
       try {
-        const recipe = JSON.parse(raw.slice(start, end + 1));
-        return json(recipe);
+        return json(extractJson(data));
       } catch (e) {
-        return err('Invalid JSON from parser');
+        return err('Could not parse recipe: ' + e.message);
       }
     }
 
@@ -250,8 +261,8 @@ ${sourceText}`;
       const base64 = btoa(binary);
 
       const resp = await callAnthropic(env, {
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 3000,
+        max_tokens: 16000,  // caps thinking + answer together
+        output_config: { effort: 'low' },
         system: 'You are a JSON API. Output ONLY raw JSON, no markdown, no explanation.',
         messages: [{
           role: 'user',
@@ -295,13 +306,10 @@ Tags examples: quick, vegetarian, vegan, make-ahead, high-protein, batch-prep.`,
 
       const data = await resp.json() as any;
       if (data.error) return json(data, resp.status);
-      const raw = (data.content as any[]).map(b => b.text || '').join('');
-      const start = raw.indexOf('{'), end = raw.lastIndexOf('}');
-      if (start === -1) return err('Could not parse recipe from PDF');
       try {
-        return json(JSON.parse(raw.slice(start, end + 1)));
-      } catch {
-        return err('Invalid JSON from parser');
+        return json(extractJson(data));
+      } catch (e) {
+        return err('Could not parse recipe from PDF: ' + e.message);
       }
     }
 

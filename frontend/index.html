@@ -1105,7 +1105,10 @@ function restoreFromHistory(idx){
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function callClaude(prompt, maxTokens) {
-  var payload={model:'claude-sonnet-4-20250514',max_tokens:maxTokens,
+  // The Worker sets the model; this one is only used when calling Anthropic directly.
+  // max_tokens covers thinking + answer, so keep a generous floor.
+  var payload={model:'claude-opus-5',max_tokens:Math.max(maxTokens,16000),
+    output_config:{effort:'medium'},
     system:'You are a JSON API. Output ONLY a raw JSON object. No markdown, no explanation, no preamble.',
     messages:[{role:'user',content:prompt}]};
   var resp;
@@ -1113,6 +1116,7 @@ async function callClaude(prompt, maxTokens) {
   else { resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
   var data=await resp.json();
   if (data.error) throw new Error(data.error.message);
+  if (data.stop_reason==='refusal') throw new Error('Claude declined this request');
   var raw=data.content.map(function(b){return b.text||'';}).join('');
   var s=raw.indexOf('{'),e=raw.lastIndexOf('}');
   if(s===-1||e===-1) throw new Error('No JSON in response');
