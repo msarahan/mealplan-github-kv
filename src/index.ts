@@ -44,6 +44,55 @@ function extractJson(data) {
   return JSON.parse(raw.slice(start, end + 1));
 }
 
+// ── Recipe extraction ─────────────────────────────────────────────────────────
+// Structured outputs guarantee the reply is valid JSON matching this schema, so a
+// stray fraction like `"protein": 42 1/2` can't break parsing.
+const str = { type: 'string' };
+const strList = { type: 'array', items: str };
+const RECIPE_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: str, tags: strList, prepMins: { type: 'integer' },
+    calories: { type: 'number' }, protein: { type: 'number' },
+    carbs: { type: 'number' }, fat: { type: 'number' }, servings: { type: 'integer' },
+    ingredients: strList, steps: strList, notes: str,
+  },
+  required: ['name', 'tags', 'prepMins', 'calories', 'protein', 'carbs', 'fat',
+             'servings', 'ingredients', 'steps', 'notes'],
+  additionalProperties: false,
+};
+const RECIPES_SCHEMA = {
+  type: 'object',
+  properties: { recipes: { type: 'array', items: RECIPE_SCHEMA } },
+  required: ['recipes'],
+  additionalProperties: false,
+};
+
+const RECIPE_RULES = `Return {"recipes": []} if there is no clear recipe.
+
+CRITICAL: ingredients must be per 1 serving. If the recipe serves N people,
+divide every ingredient quantity by N. Set servings to 1. Nutrition fields are per serving.
+
+Use US customary units (cups, tbsp, tsp, oz, lb). Write ingredient fractions in plain
+ASCII (e.g. "1/2 cup rice"). Estimate calories/protein/carbs/fat per serving if not stated.
+prepMins is total active + cooking time in minutes.
+Tags are short descriptors like: quick, vegetarian, vegan, make-ahead, high-protein, batch-prep.`;
+
+// content: the user-message content blocks. Returns Recipe[] or throws.
+async function extractRecipes(env, content) {
+  const resp = await callAnthropic(env, {
+    max_tokens: 16000,  // caps thinking + answer together
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: RECIPES_SCHEMA } },
+    messages: [{ role: 'user', content }],
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message || 'Anthropic API error');
+  if (data.stop_reason === 'max_tokens') throw new Error('Recipe too long to parse');
+  const recipes = extractJson(data).recipes;
+  if (!recipes.length) throw new Error('No recipe found');
+  return recipes;
+}
+
 // ── Mealime import ────────────────────────────────────────────────────────────
 // Mealime recipe pages (app.mealime.com/recipe_variants/:id) only resolve at /print,
 // which is public HTML with a stable structure. Pantry staples have no quantity in the
@@ -195,46 +244,15 @@ export default {
 
       if (!sourceText) return err('No URL or text provided');
 
-      const prompt = `Extract the recipe from the following text and return it as JSON.
-Return ONLY valid JSON, no markdown, no explanation.
-If you cannot find a clear recipe, return {"error":"No recipe found"}.
-
-CRITICAL: ingredients must be per 1 serving. If the recipe serves N people,
-divide every ingredient quantity by N. Set servings:1. Nutrition fields are per serving.
-
-JSON structure:
-{
-  "name": "Recipe name",
-  "tags": ["tag1","tag2"],
-  "prepMins": 20,
-  "calories": 450,
-  "protein": 30,
-  "carbs": 40,
-  "fat": 15,
-  "servings": 1,
-  "ingredients": ["1 cup item per serving","2 tbsp item per serving"],
-  "steps": ["Step 1.","Step 2."],
-  "sourceUrl": "${body.url || ''}",
-  "notes": "Any useful notes"
-}
-
-Use US customary units (cups, tbsp, tsp, oz, lb).
-Estimate calories/protein/carbs/fat per serving if not stated.
-Tags should be short descriptors like: quick, vegetarian, make-ahead, high-protein, etc.
+      const prompt = `Extract the recipe from the following text as a single-item recipes array.
+${RECIPE_RULES}
 
 TEXT:
 ${sourceText}`;
 
-      const resp = await callAnthropic(env, {
-        max_tokens: 16000,  // caps thinking + answer together
-        output_config: { effort: 'low' },
-        system: 'You are a JSON API. Output ONLY raw JSON, no markdown, no explanation.',
-        messages: [{ role: 'user', content: prompt }],
-      });
-      const data = await resp.json();
-      if (data.error) return json(data, resp.status);
       try {
-        return json(extractJson(data));
+        const [recipe] = await extractRecipes(env, prompt);
+        return json({ ...recipe, sourceUrl: body.url || '' });
       } catch (e) {
         return err('Could not parse recipe: ' + e.message);
       }
@@ -260,54 +278,16 @@ ${sourceText}`;
       for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
       const base64 = btoa(binary);
 
-      const resp = await callAnthropic(env, {
-        max_tokens: 16000,  // caps thinking + answer together
-        output_config: { effort: 'low' },
-        system: 'You are a JSON API. Output ONLY raw JSON, no markdown, no explanation.',
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: { type: 'base64', media_type: 'application/pdf', data: base64 },
-            },
-            {
-              type: 'text',
-              text: `Extract all recipes from this PDF (up to 5). Return ONLY valid JSON.
-If no recipe is found, return {"error":"No recipe found"}.
-
-CRITICAL: ingredients must be per 1 serving. If the recipe says it serves N people,
-divide every ingredient quantity by N. Set servings:1. Set calories/protein/carbs/fat per serving.
-
-{
-  "recipes": [
-    {
-      "name": "Recipe name",
-      "tags": ["tag1"],
-      "prepMins": 20,
-      "calories": 450,
-      "protein": 30,
-      "carbs": 40,
-      "fat": 15,
-      "servings": 1,
-      "ingredients": ["1 cup item per serving (already divided by serving count)"],
-      "steps": ["Step 1."],
-      "notes": ""
-    }
-  ]
-}
-
-Use US customary units. Estimate nutrition per serving if not stated.
-Tags examples: quick, vegetarian, vegan, make-ahead, high-protein, batch-prep.`,
-            },
-          ],
-        }],
-      });
-
-      const data = await resp.json() as any;
-      if (data.error) return json(data, resp.status);
       try {
-        return json(extractJson(data));
+        const recipes = await extractRecipes(env, [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: `Extract all recipes from this PDF (up to 5).
+If the PDF is a Mealime export, pantry staples may be listed without amounts; their
+amounts appear under individual steps, so sum each ingredient across all steps.
+Omit cookware.
+${RECIPE_RULES}` },
+        ]);
+        return json({ recipes });
       } catch (e) {
         return err('Could not parse recipe from PDF: ' + e.message);
       }

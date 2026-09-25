@@ -216,11 +216,12 @@ describe('Anthropic calls', () => {
   it('uses the current model with fallbacks and room for thinking, and skips thinking blocks', async () => {
     const calls = mockAnthropic({
       stop_reason: 'end_turn',
-      content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: '{"name":"Toast"}' }],
+      content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: '{"recipes":[{"name":"Toast"}]}' }],
     });
     const res = await parseText();
-    expect(await res.json()).toEqual({ name: 'Toast' });
+    expect(await res.json()).toEqual({ name: 'Toast', sourceUrl: '' });
     expect(calls[0].body.model).toBe(MODEL);
+    expect(calls[0].body.output_config.format.type).toBe('json_schema');
     expect(calls[0].body.fallbacks).toBe('default');
     expect(calls[0].body.max_tokens).toBeGreaterThanOrEqual(16000);
     expect(calls[0].headers.get('anthropic-beta')).toBe('server-side-fallback-2026-07-01');
@@ -234,6 +235,25 @@ describe('Anthropic calls', () => {
       body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 100, messages: [] }),
     });
     expect(calls[0].body.model).toBe(MODEL);
+  });
+
+  it('reports "No recipe found" when the page has no recipe', async () => {
+    mockAnthropic({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"recipes":[]}' }] });
+    const res = await parseText();
+    expect(res.status).toBe(400);
+    expect((await res.json() as any).error).toContain('No recipe found');
+  });
+
+  it('PDF import returns the recipes array', async () => {
+    const calls = mockAnthropic({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '{"recipes":[{"name":"A"},{"name":"B"}]}' }],
+    });
+    const fd = new FormData();
+    fd.append('pdf', new File(['%PDF-1.4'], 'r.pdf', { type: 'application/pdf' }));
+    const res = await SELF.fetch(`${BASE}/parse-pdf`, { method: 'POST', body: fd });
+    expect(await res.json()).toEqual({ recipes: [{ name: 'A' }, { name: 'B' }] });
+    expect(calls[0].body.messages[0].content[0].type).toBe('document');
   });
 
   it('reports a refusal instead of parsing it', async () => {
