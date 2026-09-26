@@ -529,7 +529,6 @@ var optPriority     = OPT_DEFS.map(function(o){return o.id;});
 var planDays        = 7;
 var mealsPerDay     = 3;
 var currentPlan     = null;
-var mealServings    = {};
 var leftoverLunches = 0;
 var checkedItems    = new Set();
 var customItems     = [];
@@ -990,12 +989,20 @@ function scaleIngs(ings, srv) {
 function toggleMealCard(h){ h.closest('.meal-card').classList.toggle('open'); }
 function toggleRecipeCard(id){ var el=document.getElementById('rc-'+id); if(el) el.classList.toggle('open'); }
 
+// Household default for a meal: that day's servings, plus next day's lunch if it makes leftovers
+function defaultCookServings(meal, di) {
+  var d=di%7;
+  return getSrv(meal.type,d)+(meal.leftoversForLunch?getSrv('lunch',(d+1)%7):0);
+}
+// meal.cookServings is a per-meal override saved with the plan
+function mealCookServings(meal, di) { return meal.cookServings||defaultCookServings(meal,di); }
+
 function changeServings(di, mi, delta) {
-  var key=di+'-'+mi, meal=currentPlan.days[di].meals[mi];
-  if (!mealServings[key]) mealServings[key]=meal._cookSrv||1;
-  var next=Math.max(1,Math.min(20,mealServings[key]+delta));
-  if (next===mealServings[key]) return;
-  mealServings[key]=next;
+  var meal=currentPlan.days[di].meals[mi], cur=mealCookServings(meal,di);
+  var next=Math.max(1,Math.min(20,cur+delta));
+  if (next===cur) return;
+  // Back at the default: drop the override so household setting changes still apply
+  if (next===defaultCookServings(meal,di)) delete meal.cookServings; else meal.cookServings=next;
   var el=document.getElementById('srv-'+di+'-'+mi); if(el) el.textContent=next;
   if (meal.ingredients && meal.ingredients.length) {
     if (!meal._baseIngs) meal._baseIngs=meal.ingredients.slice();
@@ -1004,6 +1011,7 @@ function changeServings(di, mi, delta) {
     for (var i=0;i<lis.length&&i<scaled.length;i++) lis[i].textContent=scaled[i];
   }
   recomputeGroceryLocal();
+  pushPlan(currentPlan);  // after recompute so the saved grocery list matches
   scheduleGroceryRefresh();
 }
 
@@ -1082,10 +1090,7 @@ function recomputeGroceryLocal() {
   currentPlan.days.forEach(function(day,di){
     day.meals.forEach(function(meal,mi){
       if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
-      var key=di+'-'+mi;
-      // Same default as the meal card: this meal's servings plus next day's lunch if it makes leftovers
-      var dayIdx=di%7;
-      var srv=mealServings[key]||getSrv(meal.type,dayIdx)+(meal.leftoversForLunch?getSrv('lunch',(dayIdx+1)%7):0);
+      var srv=mealCookServings(meal,di);
       var base=meal._baseIngs||meal.ingredients;
       scaleIngs(base,srv).forEach(function(ing){
         var p=parseIng(ing), name=(p.rest||ing).split(',')[0].trim(), k=mergeKey(name); if(!k) return;
@@ -1327,7 +1332,7 @@ function buildGroceryPrompt(plan) {
   plan.days.forEach(function(day,di){
     day.meals.forEach(function(meal,mi){
       if(meal.isLeftover||!meal.ingredients) return;
-      var srv=mealServings[di+'-'+mi]||meal._cookSrv||getSrv(meal.type,di%7);
+      var srv=mealCookServings(meal,di);
       lines+=day.dayName+' '+meal.type+' (x'+srv+'): '+meal.name+' — '+(meal.ingredients||[]).join(', ')+'\n';
     });
   });
@@ -1412,7 +1417,7 @@ async function generatePlan() {
   }
   var btn=document.getElementById('gen-btn');
   btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Generating...';
-  switchTab('plan'); mealServings={}; pinnedMeals={};
+  switchTab('plan'); pinnedMeals={};
   var pc=document.getElementById('plan-content');
   pc.innerHTML=progHTML(0); startProg(0);
   try {
@@ -1451,7 +1456,7 @@ function buildManualPlan() {
   var types=getMealTypes(), days=[];
   for (var d=0; d<planDays; d++) days.push({dayName:DAY_NAMES[d%7], meals:types.map(placeholderMeal)});
   currentPlan={summary:{}, days:days, groceryList:[], customItems:customItems};
-  mealServings={}; pinnedMeals={};
+  pinnedMeals={};
   checkedItems=new Set(); kvPut('/checks/'+householdCode, []);
   refreshPlanLocal();
   switchTab('plan');
@@ -1467,7 +1472,6 @@ function refreshPlanLocal() {
 function clearMeal(di,mi) {
   var meal=currentPlan.days[di].meals[mi];
   currentPlan.days[di].meals[mi]=placeholderMeal(meal.type);
-  delete mealServings[di+'-'+mi];
   // A dinner's leftover lunch (on a later day) goes with it
   if (meal.leftoversForLunch) currentPlan.days.slice(di+1).forEach(function(day){
     day.meals.forEach(function(m,nmi){
@@ -1623,11 +1627,9 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
       +'<span class="leftover-name">&#127973; Leftovers: '+esc(meal.sourceDinner||'prev dinner')+'</span>'
       +'</div></div></div>';
   }
-  var type=esc(meal.type||'meal'), dayIdx=di%7;
-  var mealSrv=getSrv(meal.type,dayIdx);
-  var cookSrv=mealSrv+(meal.leftoversForLunch?getSrv('lunch',(dayIdx+1)%7):0);
-  var dispSrv=mealServings[di+'-'+mi]||cookSrv;
-  meal._cookSrv=cookSrv;
+  var type=esc(meal.type||'meal');
+  var cookSrv=defaultCookServings(meal,di);
+  var dispSrv=mealCookServings(meal,di);
   if(meal.ingredients&&!meal._baseIngs) meal._baseIngs=meal.ingredients.slice();
 
   var html='<div class="meal-card'+(startOpen?' open':'')+'" id="meal-'+di+'-'+mi+'">'
@@ -1661,7 +1663,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     +'</div>';
 
   if(meal.ingredients&&meal.ingredients.length){
-    var scaledIngs=scaleIngs(meal._baseIngs||meal.ingredients,cookSrv);
+    var scaledIngs=scaleIngs(meal._baseIngs||meal.ingredients,dispSrv);
     html+='<div class="detail-label">Ingredients</div><ul class="ingredients-list">';
     scaledIngs.forEach(function(ing){ html+='<li>'+esc(ing)+'</li>'; });
     html+='</ul>';
@@ -1806,7 +1808,7 @@ async function swapMeal(di,mi,btn,customPrompt){
   try{
     var data=await callClaude(prompt,700); data.type=meal.type;
     data.leftoversForLunch=meal.leftoversForLunch||false;
-    currentPlan.days[di].meals[mi]=data; delete mealServings[di+'-'+mi];
+    currentPlan.days[di].meals[mi]=data;
     syncLeftoverName(di,mi);
     var card=document.getElementById('meal-'+di+'-'+mi);
     var tmp=document.createElement('div'); tmp.innerHTML=buildMealCardHTML(di,mi,data);
@@ -2412,7 +2414,6 @@ function pinRecipe(recipeId){
     ingredients:recipe.ingredients,steps:recipe.steps,
     leftoversForLunch:existingMeal.leftoversForLunch||false,prepNote:null,batchNote:null
   };
-  delete mealServings[di+'-'+mi];
   syncLeftoverName(di,mi);
   closePicker(); refreshPlanLocal();
 }
