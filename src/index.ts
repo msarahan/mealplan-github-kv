@@ -16,7 +16,7 @@ function json(data, status) {
 }
 function err(msg, status) { return json({ error: msg }, status || 400); }
 
-import { MODEL } from './config';
+import { MODEL, CLASSIFY_BATCH } from './config';
 
 async function callAnthropic(env, payload) {
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -47,16 +47,26 @@ function extractJson(data) {
 // stray fraction like `"protein": 42 1/2` can't break parsing.
 const str = { type: 'string' };
 const strList = { type: 'array', items: str };
+// The app's dietary approaches (see Configure tab)
+const DIETS = ['climatarian', 'mediterranean', 'omnivore', 'plant-based'];
+const dietList = { type: 'array', items: { type: 'string', enum: DIETS } };
+const DIET_RULES = `diets: every dietary approach the recipe fits (often several; can be empty):
+- plant-based: no animal products at all (no meat, fish, dairy, eggs, or honey).
+- climatarian: no beef or lamb; built mainly on legumes, fish, poultry, or plant proteins.
+- mediterranean: vegetables, legumes, whole grains, fish/seafood or poultry, olive oil;
+  little or no red meat, butter, or heavily processed ingredients.
+- omnivore: any balanced meal (nearly every recipe fits).`;
+
 const RECIPE_SCHEMA = {
   type: 'object',
   properties: {
     name: str, tags: strList, prepMins: { type: 'integer' },
     calories: { type: 'number' }, protein: { type: 'number' },
     carbs: { type: 'number' }, fat: { type: 'number' }, servings: { type: 'integer' },
-    ingredients: strList, steps: strList, notes: str,
+    ingredients: strList, steps: strList, notes: str, diets: dietList,
   },
   required: ['name', 'tags', 'prepMins', 'calories', 'protein', 'carbs', 'fat',
-             'servings', 'ingredients', 'steps', 'notes'],
+             'servings', 'ingredients', 'steps', 'notes', 'diets'],
   additionalProperties: false,
 };
 const RECIPES_SCHEMA = {
@@ -74,21 +84,59 @@ divide every ingredient quantity by N. Set servings to 1. Nutrition fields are p
 Use US customary units (cups, tbsp, tsp, oz, lb). Write ingredient fractions in plain
 ASCII (e.g. "1/2 cup rice"). Estimate calories/protein/carbs/fat per serving if not stated.
 prepMins is total active + cooking time in minutes.
-Tags are short descriptors like: quick, vegetarian, vegan, make-ahead, high-protein, batch-prep.`;
+Tags are short descriptors like: quick, vegetarian, vegan, make-ahead, high-protein, batch-prep.
+${DIET_RULES}`;
 
-// content: the user-message content blocks. Returns Recipe[] or throws.
-async function extractRecipes(env, content) {
+// One Claude call whose reply is guaranteed to match `schema`. Returns the parsed object.
+async function callStructured(env, content, schema) {
   const resp = await callAnthropic(env, {
     max_tokens: 16000,  // caps thinking + answer together
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: RECIPES_SCHEMA } },
+    output_config: { effort: 'low', format: { type: 'json_schema', schema } },
     messages: [{ role: 'user', content }],
   });
   const data = await resp.json();
   if (data.error) throw new Error(data.error.message || 'Anthropic API error');
-  if (data.stop_reason === 'max_tokens') throw new Error('Recipe too long to parse');
-  const recipes = extractJson(data).recipes;
+  if (data.stop_reason === 'max_tokens') throw new Error('Response too long');
+  return extractJson(data);
+}
+
+// content: the user-message content blocks. Returns Recipe[] or throws.
+async function extractRecipes(env, content) {
+  const { recipes } = await callStructured(env, content, RECIPES_SCHEMA);
   if (!recipes.length) throw new Error('No recipe found');
   return recipes;
+}
+
+// ── Diet classification for recipes saved before `diets` existed ─────────────
+const CLASSIFY_SCHEMA = {
+  type: 'object',
+  properties: {
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { id: str, diets: dietList },
+        required: ['id', 'diets'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['results'],
+  additionalProperties: false,
+};
+
+// recipes: [{id, name, ingredients}]. Returns [{id, diets}] for known ids only.
+async function classifyDiets(env, recipes) {
+  const list = recipes.map(r =>
+    `id=${r.id} | ${r.name} | ${(r.ingredients || []).join('; ')}`).join('\n');
+  const { results } = await callStructured(env,
+    `For each recipe below, list the dietary approaches it fits. Return one result per id.
+${DIET_RULES}
+
+RECIPES:
+${list}`, CLASSIFY_SCHEMA);
+  const ids = new Set(recipes.map(r => r.id));
+  return results.filter(r => ids.has(r.id));
 }
 
 // ── Mealime import ────────────────────────────────────────────────────────────
@@ -253,6 +301,20 @@ ${sourceText}`;
         return json({ ...recipe, sourceUrl: body.url || '' });
       } catch (e) {
         return err('Could not parse recipe: ' + e.message);
+      }
+    }
+
+    // ── POST /classify-diets ─────────────────────────────────────────────────────
+    // Body: { recipes: [{id, name, ingredients}] } (max CLASSIFY_BATCH) → { results: [{id, diets}] }
+    if (request.method === 'POST' && path === '/classify-diets') {
+      const body = await request.json().catch(() => ({}));
+      const recipes = Array.isArray(body.recipes) ? body.recipes : [];
+      if (!recipes.length) return err('No recipes provided');
+      if (recipes.length > CLASSIFY_BATCH) return err(`At most ${CLASSIFY_BATCH} recipes per request`);
+      try {
+        return json({ results: await classifyDiets(env, recipes) });
+      } catch (e) {
+        return err('Could not classify recipes: ' + e.message);
       }
     }
 

@@ -1,7 +1,7 @@
 import { env, SELF } from 'cloudflare:test';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { extractMealime, normalizeRecipeUrl } from './index';
-import { MODEL } from './config';
+import { MODEL, CLASSIFY_BATCH } from './config';
 
 const BASE = 'http://example.com';
 
@@ -255,6 +255,41 @@ describe('Anthropic calls', () => {
     const res = await SELF.fetch(`${BASE}/parse-pdf`, { method: 'POST', body: fd });
     expect(await res.json()).toEqual({ recipes: [{ name: 'A' }, { name: 'B' }] });
     expect(calls[0].body.messages[0].content[0].type).toBe('document');
+  });
+
+  it('asks for diets restricted to the four app approaches', async () => {
+    const calls = mockAnthropic({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"recipes":[{"name":"Toast"}]}' }] });
+    await parseText();
+    const recipe = calls[0].body.output_config.format.schema.properties.recipes.items;
+    expect(recipe.required).toContain('diets');
+    expect(recipe.properties.diets.items.enum).toEqual(['climatarian', 'mediterranean', 'omnivore', 'plant-based']);
+  });
+
+  const classify = (recipes: unknown) => SELF.fetch(`${BASE}/classify-diets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipes }),
+  });
+
+  it('/classify-diets returns diets per id and drops ids it was not asked about', async () => {
+    const calls = mockAnthropic({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({ results: [
+        { id: 'r-1', diets: ['omnivore', 'climatarian'] },
+        { id: 'r-bogus', diets: ['omnivore'] },
+      ] }) }],
+    });
+    const res = await classify([{ id: 'r-1', name: 'Salmon', ingredients: ['6 oz salmon'] }]);
+    expect(await res.json()).toEqual({ results: [{ id: 'r-1', diets: ['omnivore', 'climatarian'] }] });
+    expect(calls[0].body.messages[0].content).toContain('id=r-1 | Salmon | 6 oz salmon');
+  });
+
+  it('/classify-diets rejects empty and oversized batches without calling Claude', async () => {
+    const calls = mockAnthropic({ stop_reason: 'end_turn', content: [] });
+    expect((await classify([])).status).toBe(400);
+    const many = Array.from({ length: CLASSIFY_BATCH + 1 }, (_, i) => ({ id: 'r-' + i, name: 'x', ingredients: [] }));
+    expect((await classify(many)).status).toBe(400);
+    expect(calls.length).toBe(0);
   });
 
   it('reports a refusal instead of parsing it', async () => {
