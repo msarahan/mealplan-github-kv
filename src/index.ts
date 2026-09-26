@@ -16,9 +16,7 @@ function json(data, status) {
 }
 function err(msg, status) { return json({ error: msg }, status || 400); }
 
-// Single place to change the model when Anthropic retires one. The Worker overrides
-// whatever model the frontend sends, so /generate follows this too.
-export const MODEL = 'claude-opus-5';
+import { MODEL } from './config';
 
 async function callAnthropic(env, payload) {
   const resp = await fetch('https://api.anthropic.com/v1/messages', {

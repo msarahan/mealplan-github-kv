@@ -1,6 +1,7 @@
 import { env, SELF } from 'cloudflare:test';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { extractMealime, normalizeRecipeUrl, MODEL } from './index';
+import { extractMealime, normalizeRecipeUrl } from './index';
+import { MODEL } from './config';
 
 const BASE = 'http://example.com';
 
