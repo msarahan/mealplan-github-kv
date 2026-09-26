@@ -149,10 +149,6 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .plan-header-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .plan-header-row h2{font-family:'Lora',serif;font-size:17px;color:var(--ink)}
 .regen-btn{font-size:11px;padding:4px 10px;background:var(--sand);border:1px solid var(--sand-dark);border-radius:20px;cursor:pointer;color:var(--ink-mid);font-family:'DM Sans',sans-serif}
-.shared-prep-card{background:var(--sage-light);border:1px solid var(--sage-mid);border-radius:var(--radius);padding:12px;margin-bottom:14px}
-.spc-title{font-family:'Lora',serif;font-size:13px;color:var(--sage-dark);margin-bottom:7px}
-.shared-prep-item{font-size:12px;color:var(--sage-dark);padding:2px 0 2px 13px;position:relative}
-.shared-prep-item::before{content:'\2192';position:absolute;left:0}
 /* Backfill bar */
 .backfill-bar{display:none;align-items:center;gap:10px;background:var(--sage-light);border:1px solid var(--sage-mid);border-radius:var(--radius-sm);padding:9px 12px;margin-bottom:10px}
 .backfill-bar p{font-size:12px;color:var(--sage-dark);flex:1;line-height:1.4}
@@ -163,6 +159,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .day-prep-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sage-dark);margin-bottom:4px}
 .day-prep-task{font-size:12px;color:var(--sage-dark);padding:1px 0 1px 13px;position:relative;line-height:1.4}
 .day-prep-task::before{content:'›';position:absolute;left:2px;font-weight:700}
+.day-prep-task+.day-prep-task{margin-top:5px}
+.dpt-when{font-size:11px;color:var(--sage-dark);font-weight:500}
+.dpt-meta{font-size:11px;color:var(--ink-light)}
+.dpt-off{font-size:11px;color:var(--clay-dark)}
+.before-badge{background:var(--sand-dark);color:var(--ink-mid)}
 /* Day/meal */
 .plan-day{margin-bottom:16px}
 .day-name{font-family:'Lora',serif;font-size:15px;color:var(--ink);margin-bottom:7px}
@@ -441,6 +442,23 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <div class="srv-note" style="margin-top:7px">Only recipes that fit your dietary approach are used. Claude plans the rest around them.</div>
     </div>
     <div class="card">
+      <div class="card-title">&#9201; Make-ahead days</div>
+      <div class="recipe-filter-row" id="prep-days-row" style="margin-bottom:0"></div>
+      <div class="srv-note" style="margin-top:7px">Batch prep is scheduled on these days when the food will stay fresh until it&rsquo;s eaten; otherwise on the day it&rsquo;s needed. Leave all off to prep each item on the day it&rsquo;s first needed.</div>
+    </div>
+    <div class="card">
+      <div class="card-title">&#129752; Beans</div>
+      <div class="leftover-row">
+        <label>How you prepare beans and chickpeas</label>
+        <select id="bean-prep" onchange="setBeanPrep(this.value)">
+          <option value="can">Canned</option>
+          <option value="soak">Dried: soak &amp; simmer</option>
+          <option value="pressure">Dried: pressure cooker</option>
+        </select>
+      </div>
+      <div class="srv-note" style="margin-top:7px">With dried beans, the plan schedules a batch cook in each day&rsquo;s prep (plus an overnight soak for soak &amp; simmer), recipes use the cooked beans, and the grocery list buys dried. Lentils cook in the recipe as usual.</div>
+    </div>
+    <div class="card">
       <div class="card-title">&#10024; Optimization priorities</div>
       <div class="opt-list" id="opt-list"></div>
       <div class="opt-note">Drag to reorder. Top = highest priority.</div>
@@ -547,6 +565,8 @@ var mealsPerDay     = 3;
 var currentPlan     = null;
 var leftoverLunches = 0;
 var libraryShare    = 'some';  // off | some | most: how much of a generated plan uses saved recipes
+var beanPrep        = 'can';   // can | soak | pressure: canned beans, or cook dried beans in batches
+var prepDays        = [];      // preferred make-ahead days, 0=Mon..6=Sun; empty = no preference
 var checkedItems    = new Set();
 var customItems     = [];
 var savedRecipes    = [];
@@ -702,7 +722,7 @@ function settingsObj() {
   return {
     activeDiets: Array.from(activeDiets), optPriority: optPriority,
     planDays: planDays, mealsPerDay: mealsPerDay,
-    householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare,
+    householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays,
     customItems: customItems,
     cal:     document.getElementById('cal-target').value,
     protein: document.getElementById('protein-target').value,
@@ -719,7 +739,7 @@ function saveSettings() {
 function resetSettings() {
   activeDiets = new Set(['climatarian']);
   optPriority = OPT_DEFS.map(function(o){ return o.id; });
-  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; libraryShare = 'some'; customItems = [];
+  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; customItems = [];
   householdServings = { breakfast:[2,2,2,2,2,4,4], lunch:[2,2,2,2,2,4,4], dinner:[4,4,4,4,4,4,4], snack:[2,2,2,2,2,2,2] };
   document.getElementById('days-slider').value = 7;
   document.getElementById('days-val').textContent = 7;
@@ -730,6 +750,8 @@ function resetSettings() {
   document.getElementById('carbs-target').value = 220;
   document.getElementById('leftover-count').value = 0;
   document.getElementById('library-share').value = 'some';
+  document.getElementById('bean-prep').value = 'can';
+  renderPrepDays();
   applyDietUI(); buildOptList(); rebuildSrvTable();
 }
 function applySettings(s) {
@@ -741,6 +763,8 @@ function applySettings(s) {
   if (s.householdServings) householdServings = s.householdServings;
   if (s.leftoverLunches != null) leftoverLunches = s.leftoverLunches;
   if (s.libraryShare)      libraryShare = s.libraryShare;
+  if (s.beanPrep)          beanPrep = s.beanPrep;
+  if (Array.isArray(s.prepDays)) prepDays = s.prepDays;
   if (s.customItems)       customItems = s.customItems;
   document.getElementById('days-slider').value = planDays;
   document.getElementById('days-val').textContent = planDays;
@@ -751,6 +775,8 @@ function applySettings(s) {
   if (s.carbs)   document.getElementById('carbs-target').value = s.carbs;
   document.getElementById('leftover-count').value = leftoverLunches;
   document.getElementById('library-share').value = libraryShare;
+  document.getElementById('bean-prep').value = beanPrep;
+  renderPrepDays();
   applyDietUI();   // safe — DOM exists at this point
   buildOptList();
   rebuildSrvTable();
@@ -1003,7 +1029,9 @@ function fmtQty(n) {
 function scaleIngs(ings, srv) {
   return ings.map(function(ing){
     var p=parseIng(ing); if(!p.qty) return ing;
-    return (fmtQty(p.qty*srv)||'')+(p.unit?' '+p.unit:'')+' '+p.rest;
+    var q=p.qty*srv, unit=p.unit;
+    if (q>1&&/^cup$/i.test(unit)) unit+='s'; else if (q<=1&&/^cups$/i.test(unit)) unit=unit.slice(0,-1);
+    return (fmtQty(q)||'')+(unit?' '+unit:'')+' '+p.rest;
   });
 }
 
@@ -1028,7 +1056,7 @@ function changeServings(di, mi, delta) {
   var el=document.getElementById('srv-'+di+'-'+mi); if(el) el.textContent=next;
   if (meal.ingredients && meal.ingredients.length) {
     if (!meal._baseIngs) meal._baseIngs=meal.ingredients.slice();
-    var scaled=scaleIngs(meal._baseIngs,next);
+    var scaled=scaleIngs(effectiveIngs(meal),next);
     var lis=document.getElementById('meal-'+di+'-'+mi).querySelectorAll('.ingredients-list li');
     for (var i=0;i<lis.length&&i<scaled.length;i++) lis[i].textContent=scaled[i];
   }
@@ -1089,6 +1117,7 @@ function mergeKey(name){
 
 // Store section for items Claude hasn't categorized. First match wins.
 var CAT_RULES=[
+  [/\bdried\b.*\b(beans?|chickpeas|peas)\b/,'Pantry'],
   [/\b(peanut butter|almond butter|tahini|baking powder|baking soda)\b/,'Pantry'],
   [/\bfrozen\b/,'Frozen'],
   [/\b(canned|cans?|broth|stock|tomato paste|tomato sauce|diced tomatoes|crushed tomatoes|coconut milk|chickpeas|black beans|kidney beans|cannellini|pinto beans|refried beans)\b/,'Canned & Preserved'],
@@ -1106,6 +1135,118 @@ function guessCategory(name){
   return 'Other';
 }
 
+// ── Beans from dried (beanPrep: soak | pressure) ──────────────────────────────
+// Canned beans in recipes are shown as home-cooked amounts, the grocery list buys
+// dried, and the app schedules the batch cooking in each day's prep box.
+// Stovetop times are after an overnight soak; pressure-cooker times are unsoaked.
+var BEAN_TYPES=[
+  {re:/black[- ]eyed peas?/,                               label:'black-eyed peas', stove:'45–60 minutes', pressure:10},
+  {re:/chickpeas?|garbanzo( beans?)?/,                     label:'chickpeas',       stove:'1½–2 hours',   pressure:40},
+  {re:/black beans?/,                                      label:'black beans',     stove:'1–1½ hours',   pressure:25},
+  {re:/(?:red )?kidney beans?/,                            label:'kidney beans',    stove:'1–1½ hours',   pressure:30, boilHard:true},
+  {re:/pinto beans?/,                                      label:'pinto beans',     stove:'1–1½ hours',   pressure:30},
+  {re:/(cannellini|great northern|navy|white) beans?/,     label:null,              stove:'1–1½ hours',   pressure:30},
+  {re:/(lima|butter) beans?/,                              label:null,              stove:'45–60 minutes', pressure:15}
+];
+var BEAN_KEEPS_DAYS=4;  // cooked beans, refrigerated in their liquid
+function beanType(text){
+  var t=String(text).toLowerCase();
+  if (/green beans?|string beans?|refried|coffee|vanilla|jelly/.test(t)) return null;
+  for (var i=0;i<BEAN_TYPES.length;i++){
+    var m=t.match(BEAN_TYPES[i].re);
+    if (m) return Object.assign({}, BEAN_TYPES[i], {label:BEAN_TYPES[i].label||m[1]+' beans'});
+  }
+  return null;
+}
+function cupsText(n){ return fmtQty(n)+(n>1?' cups':' cup'); }
+// "1/4 can black beans, drained" -> "3/8 cup cooked black beans"; null if not canned beans
+function cannedToCooked(ing){
+  var t=beanType(ing); if(!t) return null;
+  var p=parseIng(ing), rest=(p.rest||'').toLowerCase(), u=(p.unit||'').toLowerCase(), cups=null;
+  if (!p.qty||/\b(cooked|dried|dry)\b/.test(rest)) return null;
+  var sized=rest.match(/^\(\s*(\d+(?:\.\d+)?)\s*-?\s*oz\.?\s*\)\s*cans?\b/);  // "1 (15 oz) can ..."
+  if (u==='can'||u==='cans') cups=p.qty*1.5;                                   // 15 oz can ~ 1 1/2 cups
+  else if (!u&&sized) cups=p.qty*1.5*parseFloat(sized[1])/15;
+  else if (u==='oz'&&/^cans?\b|canned/.test(rest)) cups=p.qty/15*1.5;
+  else if (VOL_TSP[u]&&/canned/.test(rest)) cups=p.qty*VOL_TSP[u]/48;
+  return cups===null ? null : cupsText(cups)+' cooked '+t.label;
+}
+// A meal's per-serving ingredients as they'll actually be cooked
+function effectiveIngs(meal){
+  var base=meal._baseIngs||meal.ingredients||[];
+  if (beanPrep==='can') return base;
+  return base.map(function(i){ return cannedToCooked(i)||i; });
+}
+function usesConvertedBeans(meal){
+  return beanPrep!=='can' && (meal._baseIngs||meal.ingredients||[]).some(function(i){ return !!cannedToCooked(i); });
+}
+// Batch-cook tasks for every "cooked <bean>" in the plan, split so each batch is
+// eaten within BEAN_KEEPS_DAYS of cooking. Same shape as Claude's sharedPrepTips.
+function beanPrepTips(plan){
+  if (beanPrep==='can'||!plan||!plan.days) return [];
+  var byBean={};
+  plan.days.forEach(function(day,di){
+    day.meals.forEach(function(meal){
+      if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
+      scaleIngs(effectiveIngs(meal),mealCookServings(meal,di)).forEach(function(ing){
+        var p=parseIng(ing), t=beanType(ing), u=(p.unit||'').toLowerCase();
+        if (!t||!/^cooked\b/i.test(p.rest||'')||!VOL_TSP[u]) return;
+        (byBean[t.label]=byBean[t.label]||{type:t,uses:[]}).uses.push({di:di,cups:p.qty*VOL_TSP[u]/48,ref:day.dayName+' '+meal.type,mealType:meal.type});
+      });
+    });
+  });
+  var tips=[];
+  Object.keys(byBean).forEach(function(k){
+    var b=byBean[k], batch=null, batches=[];
+    b.uses.sort(function(x,y){ return x.di-y.di; }).forEach(function(use){
+      // Start a new batch when this meal is too long after the current batch was cooked.
+      // New batches go on a preferred make-ahead day when one keeps them fresh for this meal.
+      if (!batch||use.di-batch.slot.di>=BEAN_KEEPS_DAYS){
+        batch={slot:schedulePrep(plan,needByDi(use.di,use.mealType),use.di,BEAN_KEEPS_DAYS), cups:0, meals:[]};
+        batches.push(batch);
+      }
+      batch.cups+=use.cups;
+      if (batch.meals.indexOf(use.ref)<0) batch.meals.push(use.ref);
+    });
+    batches.forEach(function(bt){
+      tips.push(Object.assign(beanTip(b.type,bt.cups,bt.meals),{prepDi:bt.slot.di,preferred:bt.slot.preferred}));
+    });
+  });
+  return tips;
+}
+function beanTip(t, cookedCups, meals){
+  var dried=cookedCups/3;  // 1 cup dried ~ 3 cups cooked (same math as the grocery list)
+  var makes=' Makes about '+cupsText(dried*3)+'.';
+  var tip={keepsDays:BEAN_KEEPS_DAYS, meals:meals, bean:true,
+    qualityNote:'Store in their cooking liquid; freeze extras for up to 3 months.'};
+  if (beanPrep==='pressure'){
+    tip.task='Pressure-cook '+cupsText(dried)+' dried '+t.label+' (no soaking needed): cover with water by 2 inches, add 1/2 tsp salt, '
+      +t.pressure+' minutes at high pressure, then 15 minutes natural release.'+makes;
+  } else {
+    tip.nightBeforeTask='Soak '+cupsText(dried)+' dried '+t.label+' in '+cupsText(dried*3)+' cold water overnight.';
+    tip.task='Cook the soaked '+t.label+': drain, cover with fresh water by 2 inches, bring to a boil'
+      +(t.boilHard?' and boil hard for 10 minutes (needed to make kidney beans safe)':'')
+      +', then simmer until tender, '+t.stove+'. Salt in the last 15 minutes.'+makes;
+  }
+  return tip;
+}
+function renderPrepDays(){
+  var row=document.getElementById('prep-days-row'); if(!row) return;
+  row.innerHTML=DOW.map(function(d,i){
+    return '<button class="filter-chip'+(prepDays.indexOf(i)>=0?' active':'')+'" onclick="togglePrepDay('+i+')">'+d+'</button>';
+  }).join('');
+}
+function togglePrepDay(i){
+  var k=prepDays.indexOf(i);
+  if (k>=0) prepDays.splice(k,1); else { prepDays.push(i); prepDays.sort(); }
+  saveSettings(); renderPrepDays();
+  if (currentPlan&&currentPlan.days) renderPlan(currentPlan);
+}
+function setBeanPrep(v){
+  beanPrep=v; saveSettings();
+  if (currentPlan&&currentPlan.days) refreshPlanLocal();
+}
+
 function recomputeGroceryLocal() {
   if (!currentPlan||!currentPlan.days) return;
   var merged={}, order=[];
@@ -1113,9 +1254,16 @@ function recomputeGroceryLocal() {
     day.meals.forEach(function(meal,mi){
       if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
       var srv=mealCookServings(meal,di);
-      var base=meal._baseIngs||meal.ingredients;
+      var base=effectiveIngs(meal);
       scaleIngs(base,srv).forEach(function(ing){
-        var p=parseIng(ing), name=(p.rest||ing).split(',')[0].trim(), k=mergeKey(name); if(!k) return;
+        var p=parseIng(ing), name=(p.rest||ing).split(',')[0].trim();
+        // "1 (15 oz) can chickpeas" -> 1 can of "chickpeas"
+        var sized=!p.unit&&name.match(/^\(\s*[\d.]+\s*-?\s*oz\.?\s*\)\s*cans?\s+(.+)/i);
+        if (sized){ name=sized[1]; p.unit='can'; }
+        // Home-cooked beans: shop for dried (1 cup dried ~ 3 cups cooked)
+        var bt=beanPrep!=='can'&&/^cooked\b/i.test(name)&&beanType(name);
+        if (bt&&p.qty){ name='dried '+bt.label; p.qty=p.qty/3; }
+        var k=mergeKey(name); if(!k) return;
         if (!merged[k]){ merged[k]={name:name,bare:0,vol:0,wt:0,units:{}}; order.push(k); }
         var m=merged[k], u=(p.unit||'').toLowerCase();
         if (!p.qty) return;
@@ -1135,7 +1283,9 @@ function recomputeGroceryLocal() {
     if (m.vol)  parts.push(fmtVolume(m.vol));
     if (m.wt)   parts.push(fmtWeight(m.wt));
     Object.keys(m.units).forEach(function(u){ var q=m.units[u]; parts.push(fmtQty(q)+' '+u+(q>1&&!/s$/.test(u)&&u!=='pkg'?'s':'')); });
-    return {name:m.name,qty:parts.join(' + '),category:catMap[k]||catMap[ingKey(m.name)]||guessCategory(m.name)};
+    // Beans switch between canned and dried with the bean setting, so don't reuse a stale category
+    var cat=beanType(m.name)?guessCategory(m.name):(catMap[k]||catMap[ingKey(m.name)]||guessCategory(m.name));
+    return {name:m.name,qty:parts.join(' + '),category:cat};
   });
   currentPlan.groceryList=newList;
   refreshSummary(currentPlan);
@@ -1316,6 +1466,28 @@ var DIET_DESC = {
   'plant-based':  'legumes, whole grains, nuts, seeds, veg, fruit; avoid all animal products'
 };
 
+// Prompt rules for the bean setting (empty when using canned)
+function beanRules() {
+  if (beanPrep==='can') return '';
+  return '\n\nBEANS: this household cooks beans and chickpeas from dried in batches'
+    +(beanPrep==='pressure'?' in a pressure cooker':' (soaked overnight, then simmered)')
+    +'. In ingredients write them as cooked amounts, e.g. "1/2 cup cooked black beans" - never canned. '
+    +'In steps, use the already-cooked beans (no draining or rinsing cans). Lentils and split peas cook in the recipe as usual.';
+}
+// Prompt rules for sharedPrepTips scheduling
+function prepScheduleRules() {
+  var s='\n\nMAKE-AHEAD SCHEDULE: each sharedPrepTips task is done on a single day, which must be early enough for its first meal '
+    +'and within keepsDays of its last meal; if a component is needed later than that, split it into separate tasks.';
+  if (prepDays.length) {
+    var names=prepDays.map(function(i){ return DAY_NAMES[i]; }).join(' and ');
+    s+=' The household prefers to do make-ahead prep on '+names+' (prep may also happen on the day before the plan starts, if it is one of these). '
+      +'Choose make-ahead components and meal order so that every task can be done on one of those days and still be fresh. '
+      +'Avoid tasks that would have to be done on other days, but use them when a meal really needs it.';
+  }
+  if (beanPrep!=='can') s+=' Do NOT include soaking or cooking dried beans in sharedPrepTips; the app schedules those itself.';
+  return s;
+}
+
 var DIET_LABEL = {'climatarian':'Climatarian','mediterranean':'Mediterranean','omnivore':'Omnivore','plant-based':'Plant-based'};
 // true/false once a recipe has been classified (recipe.diets), null if not yet
 function fitsActiveDiets(r) {
@@ -1404,6 +1576,7 @@ function buildPrompt() {
     +librarySection()
     +'\n\nINGREDIENT UNITS: US customary (cups, tbsp, tsp, oz, lb). Ingredients are for 1 serving.'
     +'\n\nsharedPrepTips: 3-5 batch-prep tasks as structured objects with fields: task (action + total quantity; if the step combines multiple ingredients spell them out inline, e.g. "Make 3 cups tomato-herb sauce by combining 2 cans crushed tomatoes with 1 tsp oregano and 1 tsp basil" — never just name the result without saying how to make it), keepsDays (integer — how many days it stays safe to eat refrigerated), qualityNote (optional — when texture/flavour starts to degrade before it becomes unsafe), meals (array of "DayName type" strings listing every meal in the plan that uses it).'
+    +prepScheduleRules()+beanRules()
     +'\n\nReturn ONLY valid JSON:'
     +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":[{"task":"Cook 3 cups brown rice in 6 cups water with 1/2 tsp salt","keepsDays":5,"qualityNote":"may dry out by day 4","meals":["Monday lunch","Wednesday dinner","Friday lunch"]},{"task":"Make 2 cups tomato-herb sauce by combining 1 can crushed tomatoes with 1 tsp oregano, 1/2 tsp basil, and 2 cloves garlic","keepsDays":5,"qualityNote":"flavour deepens over 2 days","meals":["Tuesday dinner","Thursday lunch"]}]},'
     +'"days":[{"dayName":"Monday","meals":[{"type":"dinner","name":"Chicken Stir-Fry","leftoversForLunch":true,"tags":["quick"],"prepMins":20,"calories":520,"protein":38,"carbs":45,"ingredients":["6 oz chicken breast"],"steps":["Cook chicken."],"prepNote":null,"batchNote":null}]},'
@@ -1417,11 +1590,12 @@ function buildGroceryPrompt(plan) {
     day.meals.forEach(function(meal,mi){
       if(meal.isLeftover||!meal.ingredients) return;
       var srv=mealCookServings(meal,di);
-      lines+=day.dayName+' '+meal.type+' (x'+srv+'): '+meal.name+' — '+(meal.ingredients||[]).join(', ')+'\n';
+      lines+=day.dayName+' '+meal.type+' (x'+srv+'): '+meal.name+' — '+effectiveIngs(meal).join(', ')+'\n';
     });
   });
   return 'Produce a consolidated US grocery list for these meals.\n\n'+lines
     +'\nRULES: Scale by serving count, consolidate duplicates.'
+    +(beanPrep!=='can'?'\n- Beans listed as "cooked" are cooked at home from dried: list them as dried beans (1 cup dried makes about 3 cups cooked), category Pantry, never canned.':'')
     +'\n\nOZ DISAMBIGUATION (critical):'
     +'\n- Produce sold by weight: oz/lb = weight. e.g. spinach → "5 oz bag", mushrooms → "8 oz pkg", cherry tomatoes → "10 oz".'
     +'\n- Produce sold by count/volume: avocado, bell pepper, lemon, zucchini → count ("2 avocados"); broccoli → "1 head"; garlic → "1 bulb"; cherry tomatoes may also use "1 pint".'
@@ -1456,6 +1630,7 @@ function buildBackfillPrompt(pinnedSummary, slotsToFill, cal, pro, carb) {
     +'\n\nALREADY PINNED (account for their nutrition):\n'+(pinnedSummary||'None')
     +'\n\nSLOTS TO FILL: '+slotList
     +'\n\nFor each slot generate a recipe balancing the day against pinned meals. US units, ingredients for 1 serving.'
+    +beanRules()
     +librarySection('slots to fill','{"dayName":"<day>","type":"<meal type>","name":"<exact saved name>","libraryId":"<id>","leftoversForLunch":false,"prepNote":null,"batchNote":null}')
     +'\n\nReturn ONLY valid JSON:'
     +'{"meals":[{"dayName":"Monday","type":"lunch","name":"Recipe","tags":["quick"],'
@@ -1573,26 +1748,16 @@ async function checkAndFixFreshness(plan) {
   var violations=[];
   tips.forEach(function(tip){
     if(typeof tip==='string'||!tip.keepsDays||!tip.meals||!tip.meals.length) return;
-    var maxDi=-1, lastDayName='', lastType='';
-    tip.meals.forEach(function(mealRef){
-      var refLower=mealRef.toLowerCase();
-      plan.days.forEach(function(day,di){
-        var dayLower=day.dayName.toLowerCase();
-        if(refLower.indexOf(dayLower)>=0||refLower.indexOf(dayLower.slice(0,3))>=0){
-          day.meals.forEach(function(meal){
-            if(!meal.isLeftover&&refLower.indexOf(meal.type)>=0&&di>maxDi){
-              maxDi=di; lastDayName=day.dayName; lastType=meal.type;
-            }
-          });
-        }
-      });
-    });
-    // Day 0 = prep day (first day of plan). Last use must be within keepsDays.
-    if(maxDi>=tip.keepsDays) violations.push({tip:tip,di:maxDi,dayName:lastDayName,type:lastType});
+    // Even prepped as late as possible (in time for its first meal), the last meal
+    // must fall within keepsDays
+    var u=tipUses(plan,tip); if(!u) return;
+    var prepDi=needByDi(u.firstDi,u.firstType);
+    if(u.lastDi-prepDi>=tip.keepsDays) violations.push({tip:tip,prepDi:prepDi,di:u.lastDi,dayName:u.lastDayName,type:u.lastType});
   });
   if(!violations.length) return;
   var violationDesc=violations.map(function(v){
-    return '"'+v.tip.task+'" keeps '+v.tip.keepsDays+' days but last used day '+(v.di+1)+' ('+v.dayName+' '+v.type+')';
+    return '"'+v.tip.task+'" keeps '+v.tip.keepsDays+' days, but is prepped by day '+(v.prepDi+1)
+      +' and last used day '+(v.di+1)+' ('+v.dayName+' '+v.type+')';
   }).join('\n');
   var planDesc=plan.days.map(function(day,di){
     return day.meals.filter(function(m){return !m.isLeftover;}).map(function(m){
@@ -1750,7 +1915,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     +'</div>';
 
   if(meal.ingredients&&meal.ingredients.length){
-    var scaledIngs=scaleIngs(meal._baseIngs||meal.ingredients,dispSrv);
+    var scaledIngs=scaleIngs(effectiveIngs(meal),dispSrv);
     html+='<div class="detail-label">Ingredients</div><ul class="ingredients-list">';
     scaledIngs.forEach(function(ing){ html+='<li>'+esc(ing)+'</li>'; });
     html+='</ul>';
@@ -1760,6 +1925,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     meal.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
     html+='</ol>';
   }
+  if(usesConvertedBeans(meal)) html+='<div class="prep-note batch"><span class="pn-icon">&#129752;</span><span class="pn-text">Uses home-cooked beans from your make-ahead prep instead of canned &mdash; skip draining and rinsing.</span></div>';
   if(meal.prepNote)  html+='<div class="prep-note"><span class="pn-icon">&#10052;</span><span class="pn-text">'+esc(meal.prepNote)+'</span></div>';
   if(meal.batchNote) html+='<div class="prep-note batch"><span class="pn-icon">&#127859;</span><span class="pn-text">'+esc(meal.batchNote)+'</span></div>';
 
@@ -1783,37 +1949,19 @@ function renderPlan(plan) {
     +'<div class="stat-card"><div class="sc-val">'+(s.avgDailyProtein||'?')+'g</div><div class="sc-label">avg protein/day</div></div>'
     +'<div class="stat-card"><div class="sc-val">'+plan.days.length+'</div><div class="sc-label">days</div></div>'
     +'</div>';
-  if(s.sharedPrepTips&&s.sharedPrepTips.length){
-    html+='<div class="shared-prep-card"><div class="spc-title">&#127859; Batch prep session</div>';
-    s.sharedPrepTips.forEach(function(t){
-      if(typeof t==='string'){ html+='<div class="shared-prep-item">'+esc(t)+'</div>'; return; }
-      html+='<div class="shared-prep-item">'
-        +'<strong>'+esc(t.task||'')+'</strong>'
-        +(t.meals&&t.meals.length?' <span style="color:var(--ink-mid)">— '+esc(t.meals.join(', '))+'</span>':'')
-        +(t.keepsDays?' <span style="color:var(--sage-dark);font-weight:500"> — keeps '+t.keepsDays+' days refrigerated</span>':'')
-        +(t.qualityNote?'<div style="font-size:11px;color:var(--ink-light);margin-top:2px">'+esc(t.qualityNote)+'</div>':'')
-        +'</div>';
-    });
-    html+='</div>';
-  }
+  // Make-ahead tasks appear in each day's box (the old all-in-one "Batch prep
+  // session" card is gone). Tasks scheduled before the plan starts get their own section.
   var _todayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
   var _dayPrepMap=buildDayPrepMap(plan);
+  if(_dayPrepMap[-1]&&_dayPrepMap[-1].length){
+    html+='<div class="plan-day"><div class="day-name">'+esc(DAY_NAMES[dowOf(plan,-1)])+' <span class="today-badge before-badge">before the plan</span></div>'
+      +dayPrepBoxHTML(_dayPrepMap[-1])+'</div>';
+  }
   plan.days.forEach(function(day,di){
     var isToday=day.dayName===_todayName;
     html+='<div class="plan-day"'+(isToday?' id="plan-day-today"':'')+'>'+
       '<div class="day-name">'+esc(day.dayName)+(isToday?' <span class="today-badge">today</span>':'')+' </div>';
-    if(_dayPrepMap[di]&&_dayPrepMap[di].length){
-      var anyNightBefore=_dayPrepMap[di].some(function(e){return e.nightBefore;});
-      html+='<div class="day-prep-box"><div class="day-prep-title">&#9201; Batch prep today</div>';
-      if(anyNightBefore) html+='<div style="font-size:11px;color:var(--sage-dark);margin-bottom:4px;font-style:italic">Some of these can (or should) be done the night before to be ready for today\'s lunch.</div>';
-      _dayPrepMap[di].forEach(function(entry){
-        html+='<div class="day-prep-task">'+esc(entry.tip.task)
-          +(entry.tip.keepsDays?' <span style="font-size:11px;color:var(--ink-light)">— keeps '+entry.tip.keepsDays+' days</span>':'')
-          +(entry.nightBefore?' <span style="font-size:11px;color:var(--sage-dark);font-weight:500">(night before)</span>':'')
-          +'</div>';
-      });
-      html+='</div>';
-    }
+    if(_dayPrepMap[di]&&_dayPrepMap[di].length) html+=dayPrepBoxHTML(_dayPrepMap[di]);
     day.meals.forEach(function(meal,mi){ html+=buildMealCardHTML(di,mi,meal,isToday); });
     html+='</div>';
   });
@@ -1823,43 +1971,81 @@ function renderPlan(plan) {
   if(todayEl) setTimeout(function(){ todayEl.scrollIntoView({behavior:'smooth',block:'start'}); },50);
 }
 
-// ── Per-day batch prep map ────────────────────────────────────────────────────
-// Returns {dayIndex: [tip, ...]} indicating which tips to prep on each day.
-// Prep day = day of first use, except if first use is lunch → prep the day before.
-function buildDayPrepMap(plan) {
-  var tips=plan.summary&&plan.summary.sharedPrepTips;
-  if(!tips||!Array.isArray(tips)) return {};
-  var map={};
-  tips.forEach(function(tip){
-    if(typeof tip==='string'||!tip.meals||!tip.meals.length) return;
-    var minDi=Infinity, firstType='';
-    tip.meals.forEach(function(mealRef){
-      var refLower=mealRef.toLowerCase();
-      plan.days.forEach(function(day,di){
-        var dayLower=day.dayName.toLowerCase();
-        if(refLower.indexOf(dayLower)>=0||refLower.indexOf(dayLower.slice(0,3))>=0){
-          day.meals.forEach(function(meal){
-            if(!meal.isLeftover&&refLower.indexOf(meal.type)>=0&&di<minDi){
-              minDi=di; firstType=meal.type;
-            }
-          });
-        }
+// ── Make-ahead schedule ───────────────────────────────────────────────────────
+// Each make-ahead task (Claude's sharedPrepTips + bean batches) is done on one day.
+// Day -1 is the day before the plan starts (e.g. the Sunday before a Monday week).
+
+// First and last plan days a tip's meals ("Monday dinner", ...) are eaten
+function tipUses(plan, tip) {
+  var first=null, last=null;
+  (tip.meals||[]).forEach(function(mealRef){
+    var refLower=mealRef.toLowerCase();
+    plan.days.forEach(function(day,di){
+      var dayLower=day.dayName.toLowerCase();
+      if(refLower.indexOf(dayLower)<0&&refLower.indexOf(dayLower.slice(0,3))<0) return;
+      day.meals.forEach(function(meal){
+        if(meal.isLeftover||refLower.indexOf(meal.type)<0) return;
+        if(!first||di<first.di) first={di:di,type:meal.type};
+        if(!last||di>last.di) last={di:di,type:meal.type,dayName:day.dayName};
       });
     });
-    if(minDi===Infinity) return;
-    // If first use is lunch and there's a previous day in the plan, prep then.
-    // If first use is lunch but it's the very first plan day (no previous day),
-    // keep it on day 0 and flag it as "night before" so the UI can call it out.
-    var nightBefore=false;
-    var prepDi=minDi;
-    if(firstType==='lunch'){
-      if(minDi>0){ prepDi=minDi-1; }
-      else { nightBefore=true; } // day 0 lunch — can only prep the night before
+  });
+  return first&&{firstDi:first.di,firstType:first.type,lastDi:last.di,lastType:last.type,lastDayName:last.dayName};
+}
+// Morning meals need their prep done the day before
+function needByDi(di, mealType){ return /breakfast|lunch|mid-morning/.test(mealType)?di-1:di; }
+function dowOf(plan, di){
+  var d0=DAY_NAMES.indexOf(plan.days[0]&&plan.days[0].dayName); if(d0<0) d0=0;
+  return ((d0+di)%7+7)%7;
+}
+// Latest preferred make-ahead day between "fresh enough for the last use" and
+// "ready in time for the first use". If none fits, the day it's needed
+// (preferred:false). No preferred days set: the day it's needed.
+function schedulePrep(plan, needBy, lastDi, keepsDays) {
+  var earliest=Math.max(-1, keepsDays?lastDi-(keepsDays-1):-1);
+  if (prepDays.length) {
+    for (var d=needBy; d>=earliest; d--) if (prepDays.indexOf(dowOf(plan,d))>=0) return {di:d, preferred:true};
+  }
+  return {di:Math.max(-1,needBy), preferred:!prepDays.length};
+}
+// {dayIndex: [{tip, offDay, tonight, nightBefore}]}, including -1 for the day before the plan
+function buildDayPrepMap(plan) {
+  var tips=((plan.summary&&Array.isArray(plan.summary.sharedPrepTips))?plan.summary.sharedPrepTips:[]).concat(beanPrepTips(plan));
+  var map={};
+  function add(di,entry){ (map[di]=map[di]||[]).push(entry); }
+  tips.forEach(function(tip){
+    if(typeof tip==='string'||!tip.meals||!tip.meals.length) return;
+    var slot;
+    if(tip.prepDi!=null) slot={di:tip.prepDi, preferred:tip.preferred};  // bean batches schedule themselves
+    else {
+      var u=tipUses(plan,tip); if(!u) return;
+      slot=schedulePrep(plan, needByDi(u.firstDi,u.firstType), u.lastDi, tip.keepsDays);
     }
-    if(!map[prepDi]) map[prepDi]=[];
-    map[prepDi].push({tip:tip,nightBefore:nightBefore});
+    add(slot.di,{tip:tip, offDay:!slot.preferred});
+    // e.g. soaking beans: the evening before the prep day
+    if(tip.nightBeforeTask){
+      if(slot.di-1>=-1) add(slot.di-1,{tip:{task:tip.nightBeforeTask}, tonight:true});
+      else add(-1,{tip:{task:tip.nightBeforeTask}, nightBefore:true});
+    }
   });
   return map;
+}
+function dayPrepBoxHTML(entries) {
+  var html='<div class="day-prep-box"><div class="day-prep-title">&#9201; Make-ahead today</div>';
+  // In time order: the night before, today's tasks, then tonight's soaks for tomorrow
+  var when=function(e){ return e.nightBefore?0:e.tonight?2:1; };
+  entries.slice().sort(function(a,b){ return when(a)-when(b); }).forEach(function(e){
+    var t=e.tip;
+    html+='<div class="day-prep-task">'+esc(t.task)
+      +(e.tonight?' <span class="dpt-when">(tonight, for tomorrow)</span>':'')
+      +(e.nightBefore?' <span class="dpt-when">(the night before)</span>':'')
+      +(t.meals&&t.meals.length?'<div class="dpt-meta">For '+esc(t.meals.join(', '))
+        +(t.keepsDays?' &middot; keeps '+t.keepsDays+' days':'')+'</div>':'')
+      +(t.qualityNote?'<div class="dpt-meta">'+esc(t.qualityNote)+'</div>':'')
+      +(e.offDay&&prepDays.length?'<div class="dpt-off">Not one of your make-ahead days &mdash; needed here to stay fresh</div>':'')
+      +'</div>';
+  });
+  return html+'</div>';
 }
 
 // ── Leftover sync helper ──────────────────────────────────────────────────────
@@ -1891,6 +2077,7 @@ async function swapMeal(di,mi,btn,customPrompt){
     : meal._placeholder
       ? 'Suggest ONE '+meal.type+' recipe for a '+dl+' diet.'+target+' US units.'
       : 'Suggest ONE alternative '+meal.type+' recipe replacing "'+meal.name+'" for a '+dl+' diet.'+target+' US units.';
+  prompt+=beanRules();  // cooked-from-dried beans, when that's the household setting
   // Offer saved recipes for this meal type (not the one being replaced)
   var cands=libraryCandidates(25,function(r){
     return r.id!==meal.libraryId&&r.name!==meal.name&&(!(r.mealTypes&&r.mealTypes.length)||r.mealTypes.indexOf(meal.type)>=0);
