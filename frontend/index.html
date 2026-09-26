@@ -32,6 +32,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);mi
 .hh-chip{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-light);cursor:pointer;padding:4px 10px;border-radius:20px;border:1px solid var(--sand-dark);background:var(--sand)}
 .sync-dot{width:7px;height:7px;border-radius:50%;background:var(--sage-mid);flex-shrink:0}
 .sync-dot.live{background:var(--sage);animation:pulse 2s infinite}
+.sync-dot.pending{background:var(--clay)}
+.sync-dot.offline{background:var(--ink-light)}
+.net-label{font-size:10px;color:var(--clay-dark)}
+.net-label:empty{display:none}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 /* Nav */
 .nav{display:flex;background:var(--white);border-bottom:1px solid var(--sand-dark);position:sticky;top:59px;z-index:49}
@@ -164,6 +168,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .day-name{font-family:'Lora',serif;font-size:15px;color:var(--ink);margin-bottom:7px}
 .today-badge{font-family:'DM Sans',sans-serif;font-size:10px;font-weight:600;background:var(--sage);color:#fff;border-radius:99px;padding:1px 7px;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
 .meal-card{background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--sand-dark);overflow:hidden;margin-bottom:6px}
+.placeholder-card{background:transparent;border-style:dashed;cursor:pointer}
+.placeholder-name{font-size:13px;color:var(--sage-dark)}
+.secondary-btn{display:block;width:100%;margin-top:8px;padding:12px;background:var(--white);border:1.5px solid var(--sage);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;color:var(--sage-dark);cursor:pointer}
 .meal-card.pinned{border-color:var(--sage);border-width:1.5px}
 .meal-card.leftover-card{background:var(--sand);border-style:dashed}
 .meal-card-header{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;cursor:pointer;user-select:none}
@@ -349,6 +356,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <div class="hh-chip" onclick="showHHModal()" id="hh-chip">
         <span class="sync-dot" id="sync-dot"></span>
         <span id="hh-code-display">----</span>
+        <span id="net-label" class="net-label"></span>
       </div>
     </div>
   </div>
@@ -422,13 +430,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <div class="opt-note">Drag to reorder. Top = highest priority.</div>
     </div>
     <button class="generate-btn" id="gen-btn" onclick="generatePlan()">&#10024; Generate my meal plan</button>
+    <button class="secondary-btn" onclick="buildManualPlan()">&#128203; Build plan from my recipes</button>
     <button onclick="showHistoryModal()" style="display:block;width:100%;margin-top:8px;padding:9px;background:none;border:1.5px solid var(--sand-dark);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--ink-mid);cursor:pointer">&#128337; Plan history</button>
   </div>
 
   <!-- Plan -->
   <div class="section active" id="section-plan">
     <div id="plan-content">
-      <div class="empty-state"><div class="es-icon">&#127807;</div><div class="es-title">No plan yet</div><div class="es-sub">Configure and tap Generate.</div></div>
+      <div class="empty-state"><div class="es-icon">&#127807;</div><div class="es-title">No plan yet</div><div class="es-sub">Configure and tap Generate, or pick meals yourself.</div><button class="secondary-btn" style="max-width:260px;margin:14px auto 0" onclick="buildManualPlan()">&#128203; Build plan from my recipes</button></div>
     </div>
   </div>
 
@@ -478,12 +487,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 <div class="picker-bg" id="picker-bg">
   <div class="picker-modal">
     <div class="picker-head">
-      <h3>&#x1F504; Swap meal</h3>
-      <div class="picker-prompt-row">
-        <input class="picker-prompt" id="picker-prompt" type="text" placeholder="What are you in the mood for? (optional)">
-        <button class="picker-gen-btn" id="picker-gen-btn" onclick="swapFromDialog()">Generate</button>
+      <h3 id="picker-title">&#x1F504; Swap meal</h3>
+      <div id="picker-gen-row">
+        <div class="picker-prompt-row">
+          <input class="picker-prompt" id="picker-prompt" type="text" placeholder="What are you in the mood for? (optional)">
+          <button class="picker-gen-btn" id="picker-gen-btn" onclick="swapFromDialog()">Generate</button>
+        </div>
+        <div class="picker-divider">or choose a saved recipe</div>
       </div>
-      <div class="picker-divider">or choose a saved recipe</div>
       <input class="picker-search" id="picker-search" type="text" placeholder="Search saved recipes..."
         oninput="renderPickerList(this.value)">
     </div>
@@ -546,13 +557,58 @@ function applyDietUI() {
   });
 }
 
-// ── KV storage ────────────────────────────────────────────────────────────────
+// ── KV storage (offline-first) ────────────────────────────────────────────────
+// Every read/write is mirrored to localStorage ('nkv'+path) so the app works
+// offline. Writes are queued in 'nourish_pending' and flushed in order when the
+// server is reachable; while a path has unsent changes, reads return the local copy.
+var _kvMem = {};          // path -> JSON string; source of truth if localStorage is full
+var _online = navigator.onLine !== false;
+var _flushing = false, _flushAgain = false;
+
+function cacheSet(path, data) {
+  var s = JSON.stringify(data); _kvMem[path] = s;
+  try { localStorage.setItem('nkv' + path, s); } catch(e) {}
+}
+function cacheRaw(path) {
+  if (_kvMem[path] != null) return _kvMem[path];
+  try { return localStorage.getItem('nkv' + path); } catch(e) { return null; }
+}
+function cacheGet(path) { var v = cacheRaw(path); try { return v ? JSON.parse(v) : null; } catch(e) { return null; } }
+function getPending() { try { return JSON.parse(localStorage.getItem('nourish_pending') || '{}'); } catch(e) { return {}; } }
+function setPending(p) { try { localStorage.setItem('nourish_pending', JSON.stringify(p)); } catch(e) {} updateNetStatus(); }
+
+function fetchTimeout(url, opts, ms) {
+  var ctl = new AbortController(), t = setTimeout(function(){ ctl.abort(); }, ms);
+  return fetch(url, Object.assign({ signal: ctl.signal }, opts || {})).finally(function(){ clearTimeout(t); });
+}
+function setOnline(on) {
+  if (_online === on) return;
+  _online = on; updateNetStatus();
+  if (on && Object.keys(getPending()).length) flushPending();
+}
+function isOnline() { return _online && navigator.onLine !== false; }
+
+function updateNetStatus() {
+  var dot = document.getElementById('sync-dot'), lbl = document.getElementById('net-label');
+  var pending = Object.keys(getPending()).length, on = isOnline();
+  if (dot) { dot.classList.toggle('live', on && !pending); dot.classList.toggle('offline', !on); dot.classList.toggle('pending', on && !!pending); }
+  if (lbl) lbl.textContent = !on ? (pending ? 'Offline · will sync' : 'Offline') : (pending ? 'Saving…' : '');
+  var gen = document.getElementById('picker-gen-row'); if (gen) gen.style.display = on ? '' : 'none';
+  updateBackfillBar();
+}
+
 async function kvGet(path) {
-  if (WORKER_ON) {
-    var r = await fetch(WORKER_URL + path);
-    return r.json();
+  if (!WORKER_ON || getPending()[path]) return cacheGet(path);
+  try {
+    var r = await fetchTimeout(WORKER_URL + path, null, 6000);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();  // throws on a Cloudflare Access login page
+    cacheSet(path, data); setOnline(true);
+    return data;
+  } catch(e) {
+    setOnline(false);
+    return cacheGet(path);
   }
-  try { var v = localStorage.getItem('nkv' + path); return v ? JSON.parse(v) : null; } catch(e) { return null; }
 }
 var _srcPopoverBtn = null;
 function toggleSrcPopover(e, btn) {
@@ -590,12 +646,39 @@ function showToast(msg) {
   _toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 3500);
 }
 async function kvPut(path, data) {
-  if (WORKER_ON) {
-    fetch(WORKER_URL + path, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).catch(function(){ showToast('Could not save — check your connection.'); });
-  } else {
-    try { localStorage.setItem('nkv' + path, JSON.stringify(data)); } catch(e) {}
-  }
+  cacheSet(path, data);
+  if (!WORKER_ON) return;
+  var p = getPending(); p[path] = true; setPending(p);
+  flushPending();
 }
+// Send queued writes one at a time. A path stays queued if it changed again
+// while its PUT was in flight.
+async function flushPending() {
+  if (_flushing) { _flushAgain = true; return; }
+  _flushing = true;
+  try {
+    do {
+      _flushAgain = false;
+      var paths = Object.keys(getPending());
+      for (var i = 0; i < paths.length; i++) {
+        var path = paths[i], body = cacheRaw(path) || 'null';
+        var r = await fetchTimeout(WORKER_URL + path, {method:'PUT', headers:{'Content-Type':'application/json'}, body:body}, 15000);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (cacheRaw(path) === body) { var cur = getPending(); delete cur[path]; setPending(cur); }
+        else _flushAgain = true;
+      }
+    } while (_flushAgain);
+    setOnline(true);
+  } catch(e) {
+    setOnline(false);
+  }
+  _flushing = false;
+}
+window.addEventListener('online', function(){
+  _online = true; updateNetStatus();
+  flushPending().then(function(){ if (householdCode && isOnline()) { pullPlan(); pullChecks(); pullRecipes(); } });
+});
+window.addEventListener('offline', function(){ setOnline(false); });
 
 // ── Settings persistence ──────────────────────────────────────────────────────
 function settingsObj() {
@@ -730,12 +813,13 @@ function enterApp() {
   document.getElementById('app').style.display = '';
   document.getElementById('hh-code-display').textContent = householdName || householdCode;
   document.getElementById('modal-code').textContent = householdName || householdCode;
-  document.getElementById('sync-dot').classList.add('live');
+  updateNetStatus();
   applyDietUI();
   buildOptList();
   rebuildSrvTable();
   renderRecipesTab();
   startSync();
+  if (Object.keys(getPending()).length) flushPending();  // changes made offline last session
 }
 function showHHModal() { document.getElementById('hh-modal').classList.add('open'); }
 function closeHHModal() { document.getElementById('hh-modal').classList.remove('open'); }
@@ -951,37 +1035,105 @@ function removeCustomItem(id,evt) {
 // ── Grocery recompute ─────────────────────────────────────────────────────────
 function ingKey(name){ return name.toLowerCase().replace(/^(a |an |the |fresh |dried |chopped |sliced |diced |minced |grated |shredded )/g,'').replace(/\s+/g,' ').trim(); }
 
+// Units that can be added together, as multiples of a base unit (tsp / oz)
+var VOL_TSP={tsp:1,teaspoon:1,teaspoons:1,tbsp:3,tablespoon:3,tablespoons:3,'fl oz':6,cup:48,cups:48};
+var WT_OZ={oz:1,ounce:1,ounces:1,lb:16,lbs:16,pound:16,pounds:16};
+var UNIT_ALIAS={cloves:'clove',cans:'can',heads:'head',slices:'slice',pieces:'piece',sticks:'stick',quarts:'quart',pints:'pint',gallons:'gallon',package:'pkg'};
+// Pick the measure that reads cleanly: 4 tsp stays "4 tsp", 6 tsp is "2 tbsp", 24 tsp is "1/2 cup"
+function fmtVolume(tsp){
+  var clean=function(x,dens){ return dens.some(function(d){ return Math.abs(x*d-Math.round(x*d))<0.01; }); };
+  var cups=function(){ return fmtQty(tsp/48)+(tsp>48?' cups':' cup'); };
+  if (tsp>=12 && clean(tsp/48,[3,4,8])) return cups();
+  if (tsp>=3 && clean(tsp/3,[1,2])) return fmtQty(tsp/3)+' tbsp';
+  return tsp<12 ? fmtQty(tsp)+' tsp' : cups();
+}
+function fmtWeight(oz){ return oz>=16 ? fmtQty(oz/16)+' lb' : fmtQty(oz)+' oz'; }
+
+// Looser key than ingKey, for merging "2 cloves garlic, minced" with "1 clove garlic"
+function mergeKey(name){
+  var k=name.toLowerCase().replace(/\([^)]*\)/g,' ').split(',')[0]
+    .replace(/\b(fresh|dried|chopped|sliced|diced|minced|grated|shredded|large|medium|small|boneless|skinless|extra[- ]virgin|of)\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+  return k.replace(/(ies|oes|s)$/,function(m){ return m==='ies'?'y':m==='oes'?'o':''; });
+}
+
+// Store section for items Claude hasn't categorized. First match wins.
+var CAT_RULES=[
+  [/\b(peanut butter|almond butter|tahini|baking powder|baking soda)\b/,'Pantry'],
+  [/\bfrozen\b/,'Frozen'],
+  [/\b(canned|cans?|broth|stock|tomato paste|tomato sauce|diced tomatoes|crushed tomatoes|coconut milk|chickpeas|black beans|kidney beans|cannellini|pinto beans|refried beans)\b/,'Canned & Preserved'],
+  [/\b(salt|black pepper|peppercorns?|cumin|paprika|oregano|thyme|rosemary|cinnamon|nutmeg|turmeric|powder|chili flakes|red pepper flakes|garam masala|seasoning|spices?|bay lea(f|ves)|cayenne|coriander|ground ginger|ground cloves)\b/,'Herbs & Spices'],
+  [/\b(chicken|beef|pork|turkey|lamb|salmon|cod|tilapia|halibut|tuna|shrimp|prawns?|fish|tofu|tempeh|sausages?|bacon|ham|steak)\b/,'Protein'],
+  [/\b(milk|cheese|mozzarella|parmesan|cheddar|feta|ricotta|butter|yogurt|cream|eggs?|half-and-half)\b/,'Dairy & Eggs'],
+  [/\b(almonds?|walnuts?|pecans?|cashews?|peanuts?|pistachios?|pine nuts|seeds?)\b/,'Nuts & Seeds'],
+  [/\b(rice|pasta|spaghetti|penne|noodles?|bread|breadcrumbs|crumbs|panko|tortillas?|pitas?|buns?|oats|quinoa|couscous|flour|barley|farro|bulgur|crackers?)\b/,'Grains & Bread'],
+  [/\b(oil|vinegar|sugar|honey|syrup|mustard|mayonnaise|mayo|ketchup|soy sauce|tamari|sauce|vanilla|cornstarch|lentils|salsa|jam)\b/,'Pantry'],
+  [/\b(onions?|garlic|shallots?|carrots?|celery|cabbage|lettuce|spinach|kale|arugula|chard|greens|tomato(es)?|potato(es)?|peppers?|jalape\w*|chiles?|lemons?|limes?|oranges?|apples?|bananas?|berry|berries|grapes?|pears?|peach(es)?|avocados?|cucumbers?|zucchini|squash|broccoli|cauliflower|mushrooms?|ginger|parsley|cilantro|basil|mint|dill|chives|scallions?|peas|green beans|corn|asparagus|eggplants?|radish(es)?|beets?|fennel|leeks?|mango(es)?|pineapple|melon|sprouts|herbs?)\b/,'Produce']
+];
+function guessCategory(name){
+  var n=name.toLowerCase();
+  for (var i=0;i<CAT_RULES.length;i++) if (CAT_RULES[i][0].test(n)) return CAT_RULES[i][1];
+  return 'Other';
+}
+
 function recomputeGroceryLocal() {
   if (!currentPlan||!currentPlan.days) return;
   var merged={}, order=[];
   currentPlan.days.forEach(function(day,di){
     day.meals.forEach(function(meal,mi){
-      if (meal.isLeftover||!meal.ingredients) return;
+      if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
       var key=di+'-'+mi;
-      var srv=mealServings[key]||meal._cookSrv||getSrv(meal.type,di%7);
+      // Same default as the meal card: this meal's servings plus next day's lunch if it makes leftovers
+      var dayIdx=di%7;
+      var srv=mealServings[key]||getSrv(meal.type,dayIdx)+(meal.leftoversForLunch?getSrv('lunch',(dayIdx+1)%7):0);
       var base=meal._baseIngs||meal.ingredients;
       scaleIngs(base,srv).forEach(function(ing){
-        var p=parseIng(ing); var k=ingKey(p.rest||ing); if(!k) return;
-        if (!merged[k]){ merged[k]={name:p.rest||ing,qty:p.qty,unit:p.unit||'',count:1}; order.push(k); }
-        else {
-          var m=merged[k];
-          if (p.qty&&m.qty!==null&&(p.unit||'')===(m.unit||'')){ m.qty+=p.qty; m.count++; }
-          else { m.qty=null; m.count++; }
-        }
+        var p=parseIng(ing), name=(p.rest||ing).split(',')[0].trim(), k=mergeKey(name); if(!k) return;
+        if (!merged[k]){ merged[k]={name:name,bare:0,vol:0,wt:0,units:{}}; order.push(k); }
+        var m=merged[k], u=(p.unit||'').toLowerCase();
+        if (!p.qty) return;
+        if (VOL_TSP[u]) m.vol+=p.qty*VOL_TSP[u];
+        else if (WT_OZ[u]) m.wt+=p.qty*WT_OZ[u];
+        else if (!u) m.bare+=p.qty;
+        else { u=UNIT_ALIAS[u]||u; m.units[u]=(m.units[u]||0)+p.qty; }
       });
     });
   });
+  // Keep Claude's categories where we have them
   var catMap={};
-  if (currentPlan.groceryList) currentPlan.groceryList.forEach(function(item){ catMap[ingKey(item.name)]=item.category; });
+  if (currentPlan.groceryList) currentPlan.groceryList.forEach(function(item){ if(item.category){ catMap[ingKey(item.name)]=item.category; catMap[mergeKey(item.name)]=item.category; } });
   var newList=order.map(function(k){
-    var m=merged[k];
-    var qty=m.qty!==null&&m.qty?(fmtQty(m.qty)+(m.unit?' '+m.unit:'')):m.count>1?'x'+m.count:'';
-    return {name:m.name,qty:qty,category:catMap[k]||'Other'};
+    var m=merged[k], parts=[];
+    if (m.bare) parts.push(fmtQty(m.bare));
+    if (m.vol)  parts.push(fmtVolume(m.vol));
+    if (m.wt)   parts.push(fmtWeight(m.wt));
+    Object.keys(m.units).forEach(function(u){ var q=m.units[u]; parts.push(fmtQty(q)+' '+u+(q>1&&!/s$/.test(u)&&u!=='pkg'?'s':'')); });
+    return {name:m.name,qty:parts.join(' + '),category:catMap[k]||catMap[ingKey(m.name)]||guessCategory(m.name)};
   });
   currentPlan.groceryList=newList;
+  refreshSummary(currentPlan);
   renderGrocery();
   setGroceryStatus('ok','Updated');
   setTimeout(function(){ setGroceryStatus('',''); },2500);
+}
+
+// Plan header stats from the meals actually in the plan (per person, per day)
+function refreshSummary(plan){
+  var s=plan.summary||(plan.summary={});
+  s.totalUniqueIngredients=(plan.groceryList||[]).length;
+  var byName={};
+  plan.days.forEach(function(d){ d.meals.forEach(function(m){ if(!m.isLeftover&&!m._placeholder) byName[m.name]=m; }); });
+  var cal=0, pro=0, n=0;
+  plan.days.forEach(function(d){
+    var dc=0, dp=0, any=false;
+    d.meals.forEach(function(m){
+      var src=m._placeholder?null:m.isLeftover?byName[m.sourceDinner||m.name]:m;
+      if (src&&src.calories){ dc+=+src.calories||0; dp+=+src.protein||0; any=true; }
+    });
+    if (any){ cal+=dc; pro+=dp; n++; }
+  });
+  s.avgDailyCalories=n?Math.round(cal/n):null;
+  s.avgDailyProtein=n?Math.round(pro/n):null;
 }
 function setGroceryStatus(state,text){
   var el=document.getElementById('g-status'); if(!el) return;
@@ -991,6 +1143,7 @@ function setGroceryStatus(state,text){
 }
 function scheduleGroceryRefresh(){
   if (groceryTimer) clearTimeout(groceryTimer);
+  if (!isOnline()) return;  // the locally computed list stands until we're back online
   groceryTimer=setTimeout(function(){
     setGroceryStatus('spin','AI refresh...');
     callClaude(buildGroceryPrompt(currentPlan),6000).then(function(r){
@@ -1019,8 +1172,9 @@ async function pullChecks(){
 function startSync(){
   if(syncInterval) clearInterval(syncInterval);
   syncInterval=setInterval(function(){
+    if(Object.keys(getPending()).length) flushPending();  // retry queued offline changes
     if(document.getElementById('section-grocery').classList.contains('active'))
-      pullChecks().catch(function(){ showToast('Sync failed — check your connection.'); });
+      pullChecks();
   },8000);
 }
 
@@ -1104,6 +1258,7 @@ function restoreFromHistory(idx){
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
+var OFFLINE_MSG="You're offline — this needs an internet connection. You can still pick meals from your saved recipes.";
 async function callClaude(prompt, maxTokens) {
   // The Worker sets the model; this one is only used when calling Anthropic directly.
   // max_tokens covers thinking + answer, so keep a generous floor.
@@ -1111,9 +1266,12 @@ async function callClaude(prompt, maxTokens) {
     output_config:{effort:'medium'},
     system:'You are a JSON API. Output ONLY a raw JSON object. No markdown, no explanation, no preamble.',
     messages:[{role:'user',content:prompt}]};
+  if (!isOnline()) throw new Error(OFFLINE_MSG);
   var resp;
-  if (WORKER_ON) { resp=await fetch(WORKER_URL+'/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
-  else { resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+  try {
+    if (WORKER_ON) { resp=await fetch(WORKER_URL+'/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+    else { resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+  } catch(e) { setOnline(false); throw new Error(OFFLINE_MSG); }
   var data=await resp.json();
   if (data.error) throw new Error(data.error.message);
   if (data.stop_reason==='refusal') throw new Error('Claude declined this request');
@@ -1247,6 +1405,7 @@ function progHTML(step){
 
 // ── Generate ──────────────────────────────────────────────────────────────────
 async function generatePlan() {
+  if (!isOnline()) { showToast("You're offline — use “Build plan from my recipes” instead."); return; }
   if (currentPlan && currentPlan.days && currentPlan.days.length) {
     if (!confirm('Replace the current plan? The existing plan will be saved to history.')) return;
     saveToHistory(currentPlan);
@@ -1277,6 +1436,45 @@ async function generatePlan() {
   } finally {
     btn.disabled=false; btn.innerHTML='&#10024; Generate my meal plan';
   }
+}
+
+// ── Manual plan (works offline) ───────────────────────────────────────────────
+// Empty slots for each day/meal type; the user fills them from saved recipes and
+// the grocery list is computed locally.
+var DAY_NAMES=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+function placeholderMeal(type){ return {type:type,name:'',_placeholder:true}; }
+function buildManualPlan() {
+  if (currentPlan && currentPlan.days && currentPlan.days.length) {
+    if (!confirm('Replace the current plan? The existing plan will be saved to history.')) return;
+    saveToHistory(currentPlan);
+  }
+  var types=getMealTypes(), days=[];
+  for (var d=0; d<planDays; d++) days.push({dayName:DAY_NAMES[d%7], meals:types.map(placeholderMeal)});
+  currentPlan={summary:{}, days:days, groceryList:[], customItems:customItems};
+  mealServings={}; pinnedMeals={};
+  checkedItems=new Set(); kvPut('/checks/'+householdCode, []);
+  refreshPlanLocal();
+  switchTab('plan');
+}
+// Re-render plan + grocery from local data and save. Asks Claude to polish the
+// grocery list only when online.
+function refreshPlanLocal() {
+  recomputeGroceryLocal();
+  renderPlan(currentPlan);
+  pushPlan(currentPlan);
+  if (currentPlan.groceryList.length) scheduleGroceryRefresh();
+}
+function clearMeal(di,mi) {
+  var meal=currentPlan.days[di].meals[mi];
+  currentPlan.days[di].meals[mi]=placeholderMeal(meal.type);
+  delete mealServings[di+'-'+mi];
+  // A dinner's leftover lunch (on a later day) goes with it
+  if (meal.leftoversForLunch) currentPlan.days.slice(di+1).forEach(function(day){
+    day.meals.forEach(function(m,nmi){
+      if (m.isLeftover && m.sourceDinner===meal.name) day.meals[nmi]=placeholderMeal(m.type);
+    });
+  });
+  refreshPlanLocal();
 }
 
 // ── Freshness-order check ─────────────────────────────────────────────────────
@@ -1369,7 +1567,10 @@ function updateBackfillBar() {
   currentPlan.days.forEach(function(day){ day.meals.forEach(function(m){ if(m._placeholder) placeholders++; }); });
   if(placeholders>0){
     bar.style.display='flex';
-    bar.querySelector('p').textContent=placeholders+' slot'+(placeholders!==1?'s':'')+' to fill.';
+    var on=isOnline();
+    bar.querySelector('p').textContent=placeholders+' slot'+(placeholders!==1?'s':'')+' to fill.'
+      +(on?' Tap one to pick a recipe, or let Claude fill the rest.':' Tap one to pick a recipe.');
+    var b=document.getElementById('backfill-btn'); if(b) b.style.display=on?'':'none';
   } else {
     bar.style.display='none';
   }
@@ -1401,13 +1602,20 @@ async function backfillPlan() {
       var match=slotsToFill.filter(function(s){ return s.dayName===newMeal.dayName&&s.type===newMeal.type; })[0];
       if(match) currentPlan.days[match.di].meals[match.mi]=newMeal;
     });
-    renderPlan(currentPlan); updateBackfillBar(); pushPlan(currentPlan);
+    refreshPlanLocal();
   } catch(e){ alert('Backfill failed: '+e.message); }
   btn.disabled=false; btn.textContent='Backfill remaining meals';
 }
 
 // ── Render plan ───────────────────────────────────────────────────────────────
 function buildMealCardHTML(di, mi, meal, startOpen) {
+  if (meal._placeholder) {
+    return '<div class="meal-card placeholder-card" id="meal-'+di+'-'+mi+'" onclick="openPicker('+di+','+mi+')">'
+      +'<div class="meal-card-header"><div class="meal-card-left">'
+      +'<span class="meal-type-badge '+esc(meal.type)+'">'+esc(meal.type)+'</span>'
+      +'<span class="placeholder-name">+ Pick a recipe</span>'
+      +'</div></div></div>';
+  }
   if (meal.isLeftover) {
     return '<div class="meal-card leftover-card" id="meal-'+di+'-'+mi+'">'
       +'<div class="meal-card-header"><div class="meal-card-left">'
@@ -1469,6 +1677,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   html+='<div class="meal-action-row">';
   html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+')">&#x1F504; Swap</button>';
   html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
+  html+='<button class="meal-act-btn" onclick="clearMeal('+di+','+mi+')" title="Empty this slot (e.g. eating out)">&#10005; Clear</button>';
   html+='</div></div></div>';
   return html;
 }
@@ -1995,6 +2204,7 @@ async function parseRecipe(){
   var urlVal=urlEl?urlEl.value.trim():'';
   var txtVal=txtEl?txtEl.value.trim():'';
   if(!urlVal&&!txtVal){if(statusEl)statusEl.textContent='Enter a URL or paste recipe text.';return;}
+  if(!isOnline()){if(statusEl)statusEl.textContent="You're offline — importing needs an internet connection.";return;}
   var urls=urlVal.match(/https?:\/\/\S+/g)||[];
   if(urls.length>1){ btn.disabled=true; await bulkImportRecipes(urls); btn.disabled=false; return; }
   btn.disabled=true; if(statusEl)statusEl.textContent='Fetching and parsing...';
@@ -2073,6 +2283,7 @@ async function parsePdfRecipe(input){
   var file=input.files&&input.files[0];
   if(!file) return;
   if(!WORKER_ON){if(statusEl)statusEl.textContent='PDF import requires the Worker.';input.value='';return;}
+  if(!isOnline()){if(statusEl)statusEl.textContent="You're offline — importing needs an internet connection.";input.value='';return;}
   if(statusEl)statusEl.textContent='Reading PDF\u2026';
   var fd=new FormData();
   fd.append('pdf',file);
@@ -2143,11 +2354,16 @@ function toggleGlobalCard(id){ var el=document.getElementById('gc-'+id); if(el) 
 // ── Recipe picker (pin to slot) ───────────────────────────────────────────────
 function openPicker(di,mi){
   pickerTarget={di:di,mi:mi};
+  var meal=currentPlan.days[di].meals[mi];
+  document.getElementById('picker-title').innerHTML=meal._placeholder
+    ? '&#127869; '+esc(currentPlan.days[di].dayName)+' '+esc(meal.type) : '&#x1F504; Swap meal';
   var p=document.getElementById('picker-prompt'); if(p) p.value='';
   var s=document.getElementById('picker-search'); if(s) s.value='';
+  updateNetStatus();
   renderPickerList('');
   document.getElementById('picker-bg').classList.add('open');
-  setTimeout(function(){var p=document.getElementById('picker-prompt');if(p)p.focus();},100);
+  // Don't pop the keyboard on phones; focus the Claude prompt only on wide screens
+  if(isOnline()&&window.innerWidth>600) setTimeout(function(){var p=document.getElementById('picker-prompt');if(p)p.focus();},100);
 }
 function closePicker(){ document.getElementById('picker-bg').classList.remove('open'); pickerTarget=null; }
 
@@ -2168,7 +2384,11 @@ function renderPickerList(q){
   var list=document.getElementById('picker-list'); if(!list) return;
   var lq=(q||'').toLowerCase();
   var filtered=savedRecipes.filter(function(r){return !lq||r.name.toLowerCase().indexOf(lq)>=0;});
-  if(!filtered.length){list.innerHTML='<div style="text-align:center;padding:20px;font-size:12px;color:var(--ink-light)">No matches</div>';return;}
+  // Recipes tagged for this meal type first
+  var slotType=pickerTarget&&currentPlan?currentPlan.days[pickerTarget.di].meals[pickerTarget.mi].type:null;
+  var fits=function(r){ return slotType&&((r.mealTypes||[]).indexOf(slotType)>=0||(r.tags||[]).indexOf(slotType)>=0)?0:1; };
+  filtered=filtered.slice().sort(function(a,b){ return fits(a)-fits(b); });
+  if(!filtered.length){list.innerHTML='<div style="text-align:center;padding:20px;font-size:12px;color:var(--ink-light)">'+(savedRecipes.length?'No matches':'No saved recipes yet &mdash; import some on the Recipes tab.')+'</div>';return;}
   var html='';
   filtered.forEach(function(r){
     var meta=[r.prepMins?r.prepMins+' min':null,r.calories?r.calories+' kcal':null].filter(Boolean).join(' · ');
@@ -2192,11 +2412,18 @@ function pinRecipe(recipeId){
     ingredients:recipe.ingredients,steps:recipe.steps,
     leftoversForLunch:existingMeal.leftoversForLunch||false,prepNote:null,batchNote:null
   };
+  delete mealServings[di+'-'+mi];
   syncLeftoverName(di,mi);
-  closePicker(); renderPlan(currentPlan); pushPlan(currentPlan);
+  closePicker(); refreshPlanLocal();
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+// Service worker keeps the app itself available offline (see sw.js)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('/sw.js', {updateViaCache:'none'}).catch(function(){});
+  });
+}
 (function(){ var el=document.getElementById('app-version-footer'); if(el){ var v=window.__VERSION__||''; el.textContent=(/^__/).test(v)?'':v; } })();
 
 var _params     = new URLSearchParams(location.search);
