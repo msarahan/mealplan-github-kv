@@ -1329,33 +1329,49 @@ function shuffled(arr) {
   return a;
 }
 
-// Saved recipes Claude may place in a generated plan. Claude returns only
-// {name, libraryId} for these; fillFromLibrary() restores the full recipe.
-function librarySection() {
-  if (libraryShare==='off') return '';
-  var cands=savedRecipes.filter(function(r){ return fitsActiveDiets(r)!==false && r.ingredients&&r.ingredients.length; });
-  if (!cands.length) return '';
-  var share=libraryShare==='most'?'about two-thirds':'about one-third';
-  return '\n\nSAVED RECIPES (the household\'s own library): use saved recipes for '+share+' of the non-leftover meals, '
-    +'choosing ones that fit the dietary rules above and the meal type. Use each at most twice. '
-    +'For a saved recipe output ONLY {"type":"<meal type>","name":"<exact saved name>","libraryId":"<id>","leftoversForLunch":false,"prepNote":null,"batchNote":null} '
-    +'- the app fills in its ingredients, steps and nutrition. Count saved recipes toward the daily targets, ingredient reuse and batch prep.\n'
-    +shuffled(cands).slice(0,40).map(function(r){
-      return '- '+r.id+' | '+r.name+' | '+(r.mealTypes&&r.mealTypes.length?r.mealTypes.join('/'):'any meal')
-        +' | '+(r.calories||'?')+' kcal, '+(r.protein||'?')+'g protein | '
-        +r.ingredients.slice(0,8).map(function(i){ return (parseIng(i).rest||i).split(',')[0]; }).join(', ');
-    }).join('\n');
+// ── Saved recipes in Claude prompts (generate, backfill, swap) ────────────────
+// Claude returns only {name, libraryId} for a saved recipe; fillMealFromLibrary()
+// restores the exact saved ingredients, steps and nutrition.
+
+// Recipes that fit the active diets (or aren't classified yet), shuffled for variety
+function libraryCandidates(max, keep) {
+  if (libraryShare==='off') return [];
+  return shuffled(savedRecipes.filter(function(r){
+    return fitsActiveDiets(r)!==false && r.ingredients&&r.ingredients.length && (!keep||keep(r));
+  })).slice(0,max);
 }
+function libraryLines(cands) {
+  return cands.map(function(r){
+    return '- '+r.id+' | '+r.name+' | '+(r.mealTypes&&r.mealTypes.length?r.mealTypes.join('/'):'any meal')
+      +' | '+(r.calories||'?')+' kcal, '+(r.protein||'?')+'g protein | '
+      +r.ingredients.slice(0,8).map(function(i){ return (parseIng(i).rest||i).split(',')[0]; }).join(', ');
+  }).join('\n');
+}
+// For multi-meal prompts. `what` names the meals ("non-leftover meals", "slots to fill");
+// `shape` is the JSON Claude returns for a saved recipe.
+function librarySection(what, shape) {
+  var cands=libraryCandidates(40); if (!cands.length) return '';
+  var share=libraryShare==='most'?'about two-thirds':'about one-third';
+  return '\n\nSAVED RECIPES (the household\'s own library): use saved recipes for '+share+' of the '+(what||'non-leftover meals')+', '
+    +'choosing ones that fit the dietary rules above and the meal type. Use each at most twice in the plan. '
+    +'For a saved recipe output ONLY '+(shape||'{"type":"<meal type>","name":"<exact saved name>","libraryId":"<id>","leftoversForLunch":false,"prepNote":null,"batchNote":null}')
+    +' - the app fills in its ingredients, steps and nutrition. Count saved recipes toward the daily targets, ingredient reuse and batch prep.\n'
+    +libraryLines(cands);
+}
+// Returns true if meal.libraryId named a saved recipe (and fills it in)
+function fillMealFromLibrary(meal) {
+  var r=meal.libraryId&&savedRecipes.find(function(x){ return x.id===meal.libraryId; });
+  if (!r) return false;
+  Object.assign(meal,{name:r.name,tags:r.tags||[],prepMins:r.prepMins,calories:r.calories,protein:r.protein,
+    carbs:r.carbs,fat:r.fat,ingredients:(r.ingredients||[]).slice(),steps:(r.steps||[]).slice()});
+  return true;
+}
+function hasIngredients(meal) { return !!(meal.ingredients&&meal.ingredients.length); }
 function fillFromLibrary(plan) {
-  var byId={};
-  savedRecipes.forEach(function(r){ byId[r.id]=r; });
   plan.days.forEach(function(day){
     day.meals.forEach(function(meal,mi){
       if (meal.isLeftover) return;
-      var r=meal.libraryId&&byId[meal.libraryId];
-      if (r) Object.assign(meal,{name:r.name,tags:r.tags||[],prepMins:r.prepMins,calories:r.calories,protein:r.protein,
-        carbs:r.carbs,fat:r.fat,ingredients:(r.ingredients||[]).slice(),steps:(r.steps||[]).slice()});
-      else if (!meal.ingredients||!meal.ingredients.length) day.meals[mi]=placeholderMeal(meal.type);  // unknown id: leave the slot to pick
+      if (!fillMealFromLibrary(meal) && !hasIngredients(meal)) day.meals[mi]=placeholderMeal(meal.type);  // unknown id: leave the slot to pick
     });
   });
   return plan;
@@ -1440,6 +1456,7 @@ function buildBackfillPrompt(pinnedSummary, slotsToFill, cal, pro, carb) {
     +'\n\nALREADY PINNED (account for their nutrition):\n'+(pinnedSummary||'None')
     +'\n\nSLOTS TO FILL: '+slotList
     +'\n\nFor each slot generate a recipe balancing the day against pinned meals. US units, ingredients for 1 serving.'
+    +librarySection('slots to fill','{"dayName":"<day>","type":"<meal type>","name":"<exact saved name>","libraryId":"<id>","leftoversForLunch":false,"prepNote":null,"batchNote":null}')
     +'\n\nReturn ONLY valid JSON:'
     +'{"meals":[{"dayName":"Monday","type":"lunch","name":"Recipe","tags":["quick"],'
     +'"prepMins":15,"calories":400,"protein":25,"carbs":40,'
@@ -1672,7 +1689,8 @@ async function backfillPlan() {
     if(!result.meals) throw new Error('No meals returned');
     result.meals.forEach(function(newMeal){
       var match=slotsToFill.filter(function(s){ return s.dayName===newMeal.dayName&&s.type===newMeal.type; })[0];
-      if(match) currentPlan.days[match.di].meals[match.mi]=newMeal;
+      // Saved recipes come back as {name, libraryId}; an unknown id leaves the slot empty
+      if(match&&(fillMealFromLibrary(newMeal)||hasIngredients(newMeal))) currentPlan.days[match.di].meals[match.mi]=newMeal;
     });
     refreshPlanLocal();
   } catch(e){ alert('Backfill failed: '+e.message); }
@@ -1866,16 +1884,31 @@ async function swapMeal(di,mi,btn,customPrompt){
   if(btn){ btn.disabled=true; btn.textContent='Finding...'; }
   var meal=currentPlan.days[di].meals[mi];
   var dl=Array.from(activeDiets).join(' or ');
+  // Empty slots have no current meal or nutrition to aim for
+  var target=meal.calories?' Target ~'+meal.calories+' kcal, ~'+meal.protein+'g protein per serving.':'';
   var prompt=customPrompt
-    ? 'Suggest ONE '+meal.type+' recipe for a '+dl+' diet matching this request: "'+customPrompt+'".'
-      +' Target ~'+meal.calories+' kcal, ~'+meal.protein+'g protein per serving. US units.'
-    : 'Suggest ONE alternative '+meal.type+' recipe replacing "'+meal.name+'" for a '+dl+' diet.'
-      +' Target ~'+meal.calories+' kcal, ~'+meal.protein+'g protein per serving. US units.';
+    ? 'Suggest ONE '+meal.type+' recipe for a '+dl+' diet matching this request: "'+customPrompt+'".'+target+' US units.'
+    : meal._placeholder
+      ? 'Suggest ONE '+meal.type+' recipe for a '+dl+' diet.'+target+' US units.'
+      : 'Suggest ONE alternative '+meal.type+' recipe replacing "'+meal.name+'" for a '+dl+' diet.'+target+' US units.';
+  // Offer saved recipes for this meal type (not the one being replaced)
+  var cands=libraryCandidates(25,function(r){
+    return r.id!==meal.libraryId&&r.name!==meal.name&&(!(r.mealTypes&&r.mealTypes.length)||r.mealTypes.indexOf(meal.type)>=0);
+  });
+  if(cands.length){
+    prompt+='\n\nSAVED RECIPES (the household\'s own library): '
+      +(libraryShare==='most'?'Prefer one of these':'You may use one of these')
+      +(customPrompt?' if it matches the request':' if it fits this '+meal.type)
+      +'; otherwise invent a new recipe. To use one, return ONLY {"name":"<exact saved name>","libraryId":"<id>"}.\n'
+      +libraryLines(cands)+'\n\nFor a new recipe,';
+  }
   prompt+=' Return ONLY valid JSON: {"name":"Name","tags":["tag"],"prepMins":15,"calories":'+(meal.calories||400)
     +',"protein":'+(meal.protein||20)+',"carbs":'+(meal.carbs||40)
     +',"ingredients":["1 cup item"],"steps":["Step 1."],"prepNote":null,"batchNote":null}';
   try{
-    var data=await callClaude(prompt,700); data.type=meal.type;
+    var data=await callClaude(prompt,700);
+    if(!fillMealFromLibrary(data)&&!hasIngredients(data)) throw new Error('No recipe returned');
+    data.type=meal.type;
     data.leftoversForLunch=meal.leftoversForLunch||false;
     currentPlan.days[di].meals[mi]=data;
     syncLeftoverName(di,mi);
@@ -1889,8 +1922,11 @@ async function swapMeal(di,mi,btn,customPrompt){
         if(nm.isLeftover){ var lc=document.getElementById('meal-'+(di+1)+'-'+nmi); if(lc){ var lt=document.createElement('div'); lt.innerHTML=buildMealCardHTML(di+1,nmi,nm); lc.parentNode.replaceChild(lt.firstChild,lc); } }
       });
     }
+    recomputeGroceryLocal();
+    updateBackfillBar();
     pushPlan(currentPlan);
-  }catch(e){ if(btn){ btn.textContent='Failed'; btn.disabled=false; } }
+    scheduleGroceryRefresh();
+  }catch(e){ if(btn){ btn.textContent='Failed'; btn.disabled=false; } showToast('Swap failed: '+e.message); }
 }
 
 // ── Grocery render ────────────────────────────────────────────────────────────
