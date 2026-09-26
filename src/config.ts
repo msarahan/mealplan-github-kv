@@ -3,3 +3,6 @@
 // (Lives outside index.ts: the Workers runtime rejects non-handler value exports
 // from the main module.)
 export const MODEL = 'claude-opus-5';
+
+// Max recipes per POST /classify-diets call (the frontend sends batches of this size)
+export const CLASSIFY_BATCH = 25;
