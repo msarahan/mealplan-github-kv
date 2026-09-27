@@ -145,13 +145,15 @@ body.cooking #app{display:none}
 .ck-status{font-size:12px;color:var(--ink-mid);display:flex;align-items:center;gap:8px}
 .ck-gantt{position:relative;font-size:11px}
 .ck-grow{display:flex;align-items:center;gap:6px;height:22px}
-.ck-glabel{width:26px;flex-shrink:0;color:var(--ink-mid);text-align:right}
+.ck-glabel{width:42%;flex-shrink:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ck-glabel b{color:var(--ink-light);font-weight:500;margin-right:4px}
+.ck-glabel.done{color:var(--ink-light);text-decoration:line-through}
 .ck-gtrack{position:relative;flex:1;height:14px}
 .ck-gbar{position:absolute;top:0;height:14px;border-radius:4px;background:var(--sage);min-width:3px}
 .ck-gbar.c1{background:var(--sage-dark)}
 .ck-gbar.off{background:repeating-linear-gradient(45deg,var(--clay-light),var(--clay-light) 4px,#ecd3c4 4px,#ecd3c4 8px);border:1px solid #e8c4b0}
 .ck-gbar.done{opacity:.35}
-.ck-gaxis{display:flex;justify-content:space-between;margin-left:32px;color:var(--ink-light);font-size:10px;margin-top:2px}
+.ck-gaxis{flex:1;display:flex;justify-content:space-between;color:var(--ink-light);font-size:10px}
 .ck-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--ink-mid);margin-top:6px}
 .ck-legend span::before{content:'';display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px;background:var(--sage)}
 .ck-legend .lg-c1::before{background:var(--sage-dark)}
@@ -166,6 +168,18 @@ body.cooking #app{display:none}
 .ck-tag{font-size:10px;padding:1px 7px;border-radius:20px;background:var(--sage-light);color:var(--sage-dark);font-weight:500}
 .ck-tag.off{background:var(--clay-light);color:var(--clay-dark)}
 .ck-text{font-size:16px;line-height:1.45;color:var(--ink)}
+.ck-timer{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:14px;color:var(--clay-dark)}
+.ck-timer b{font-variant-numeric:tabular-nums;font-size:18px}
+.ck-timer button{padding:5px 11px;border-radius:20px;border:1px solid #e8c4b0;background:var(--white);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--clay-dark);cursor:pointer}
+.ck-timer .ck-timer-start{background:var(--clay-light);font-size:13px;font-weight:500}
+.ck-timer.ringing{background:var(--clay);color:#fff;border-radius:var(--radius-sm);padding:6px 10px;animation:pulse 1s infinite}
+.ck-timer.ringing button{border-color:#fff}
+.ck-chips{display:flex;gap:6px;flex-wrap:wrap;width:100%}
+.ck-chip{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--clay-light);color:var(--clay-dark);border:1px solid #e8c4b0}
+.ck-chip b{font-variant-numeric:tabular-nums}
+.ck-chip.ringing{background:var(--clay);color:#fff;cursor:pointer;animation:pulse 1s infinite}
+.timer-float{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:150;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:400px;padding:0 12px}
+.timer-float .ck-chip{box-shadow:0 2px 8px rgba(0,0,0,.12);font-size:13px;padding:6px 12px}
 .ck-link{background:none;border:none;color:var(--sage-dark);font-family:'DM Sans',sans-serif;font-size:12px;text-decoration:underline;cursor:pointer;padding:0}
 .plan-actions{display:flex;gap:8px;margin-bottom:12px}
 .new-plan-btn{flex:1;padding:10px;background:var(--sage);color:#fff;border:none;border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer}
@@ -546,6 +560,7 @@ body.cooking #app{display:none}
 
 <!-- Cooking mode: full-screen recipe view (the rest of the app is hidden) -->
 <div id="cook-mode" class="cook-mode" style="display:none"></div>
+<div id="timer-float" class="timer-float" style="display:none"></div>
 
 <div id="toast"></div>
 <div id="src-popover"></div>
@@ -2905,7 +2920,7 @@ function openCookMode(kind,a,b){
   window.scrollTo(0,0);
   try{ history.pushState({cook:true},''); }catch(e){}
   requestCookWakeLock();
-  renderCookMode();
+  renderCookMode(); renderTimerFloat();
   if(!cookOptimized(t)&&isOnline()) optimizeCookTarget();
 }
 function closeCookMode(fromPopState){
@@ -2913,6 +2928,7 @@ function closeCookMode(fromPopState){
   cook=null;
   document.body.classList.remove('cooking');
   document.getElementById('cook-mode').style.display='none';
+  renderTimerFloat();
   if(cookWakeLock){ try{ cookWakeLock.release(); }catch(e){} cookWakeLock=null; }
   if(!fromPopState&&history.state&&history.state.cook){ try{ history.back(); }catch(e){} }
 }
@@ -2974,15 +2990,24 @@ function scheduleSteps(steps, cooks){
 function fmtMins(m){ m=Math.round(m); return m<60?m+' min':Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' min':''); }
 function fmtClock(m){ m=Math.round(m); return Math.floor(m/60)+':'+('0'+(m%60)).slice(-2); }
 
+// Short timeline label ("Chop vegetables"). Directions optimized before labels
+// existed fall back to the first clause of the step, trimmed to a few words.
+function stepLabel(s){
+  if(s.label) return s.label;
+  var words=String(s.text||'').split(/[.;:,(]/)[0].trim().split(/\s+/);
+  return words.slice(0,5).join(' ')+(words.length>5?'…':'');
+}
+
 function cookGanttHTML(sched, cooks){
   var total=Math.max(sched.total,1), html='<div class="ck-gantt">';
   sched.rows.forEach(function(r){
     var cls='ck-gbar'+(r.step.handsOn?(r.cook===1?' c1':''):' off')+(cook.done[r.step.id]?' done':'');
-    html+='<div class="ck-grow"><div class="ck-glabel">'+r.num+'</div><div class="ck-gtrack">'
+    var label=stepLabel(r.step);
+    html+='<div class="ck-grow"><div class="ck-glabel'+(cook.done[r.step.id]?' done':'')+'" title="'+esc(label)+'"><b>'+r.num+'</b>'+esc(label)+'</div><div class="ck-gtrack">'
       +'<div class="'+cls+'" style="left:'+(r.start/total*100)+'%;width:'+((r.end-r.start)/total*100)+'%" title="'+esc(fmtClock(r.start)+' – '+fmtClock(r.end)+': '+r.step.text)+'"></div></div></div>';
   });
   var ticks=[0,total/4,total/2,total*3/4,total].map(function(m){ return '<span>'+fmtClock(m)+'</span>'; }).join('');
-  html+='<div class="ck-gaxis">'+ticks+'</div></div>'
+  html+='<div class="ck-grow"><div class="ck-glabel"></div><div class="ck-gaxis">'+ticks+'</div></div></div>'
     +'<div class="ck-legend"><span>'+(cooks>1?'Cook A':'Hands-on')+'</span>'+(cooks>1?'<span class="lg-c1">Cook B</span>':'')+'<span class="lg-off">Hands-off (oven, simmering…)</span></div>';
   return html;
 }
@@ -3002,6 +3027,7 @@ function renderCookMode(){
     html+='<span>Ready in ~'+fmtMins(sched.total)+(two.total<one.total-1&&cook.cooks===1?' (~'+fmtMins(two.total)+' with 2 cooks)':'')+'</span>'
       +'<span class="ck-seg"><button class="'+(cook.cooks===1?'on':'')+'" onclick="setCooks(1)">1 cook</button><button class="'+(cook.cooks===2?'on':'')+'" onclick="setCooks(2)">2 cooks</button></span>';
   }
+  if(Object.keys(cookTimers).length) html+='<div class="ck-chips">'+timerChipsHTML()+'</div>';
   html+='</div></div>';
 
   // Ingredients, scaled to this meal's servings
@@ -3028,7 +3054,7 @@ function renderCookMode(){
         +(!s.handsOn?'<span class="ck-tag off">hands-off</span>':'')
         +(cook.cooks>1&&r.cook>=0?'<span class="ck-tag">Cook '+(r.cook?'B':'A')+'</span>':'')
         +(waits.length?'<span>after step '+waits.join(', ')+'</span>':'')
-        +'</div><div class="ck-text">'+esc(s.text)+'</div></div></div>';
+        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepTimerHTML(t,s)+'</div></div>';
     });
   } else {
     html+='<div class="ck-section">'+(opt?'Original directions <button class="ck-link" style="float:right;text-transform:none;letter-spacing:0" onclick="cook.showOriginal=false;renderCookMode()">Optimized steps</button>':'Steps')+'</div>';
@@ -3040,10 +3066,88 @@ function renderCookMode(){
   }
   el.innerHTML=html;
 }
+// ── Countdown timers for hands-off steps ──────────────────────────────────────
+// Keyed by recipe + step so they survive leaving cooking mode; saved to
+// localStorage so a reload doesn't lose them. When one finishes it chimes and
+// vibrates every few seconds until stopped (up to 3 minutes).
+var cookTimers={};  // key -> {key, label, recipe, endAt, ringing}
+var timerTick=null, alarmAudio=null;
+try{ cookTimers=JSON.parse(localStorage.getItem('nourish_timers')||'{}')||{}; }catch(e){ cookTimers={}; }
+function saveTimers(){ try{ localStorage.setItem('nourish_timers',JSON.stringify(cookTimers)); }catch(e){} }
+function timerKey(t,s){ return hashStr(t.name||'')+':'+s.id; }
+function fmtCountdown(ms){ var s=Math.max(0,Math.ceil(ms/1000)); return Math.floor(s/60)+':'+('0'+(s%60)).slice(-2); }
+
+function startStepTimer(stepId){
+  var t=cookTarget(), opt=t&&cookOptimized(t); if(!opt) return;
+  var s=opt.steps.find(function(x){ return x.id===stepId; }); if(!s) return;
+  unlockAlarmAudio();  // needs this tap to be allowed to play later
+  var key=timerKey(t,s);
+  cookTimers[key]={key:key, label:stepLabel(s), recipe:t.name, endAt:Date.now()+Math.max(1,Number(s.mins)||1)*60000};
+  saveTimers(); ensureTimerTick(); renderCookMode(); renderTimerFloat();
+}
+function addTimerMinute(key){ var tm=cookTimers[key]; if(!tm) return; tm.endAt=Math.max(Date.now(),tm.endAt)+60000; tm.ringing=false; saveTimers(); refreshTimerViews(); }
+function clearTimer(key){ delete cookTimers[key]; saveTimers(); refreshTimerViews(); }
+function refreshTimerViews(){ if(cook) renderCookMode(); renderTimerFloat(); }
+
+function ensureTimerTick(){
+  if(timerTick||!Object.keys(cookTimers).length) return;
+  timerTick=setInterval(function(){
+    var keys=Object.keys(cookTimers), now=Date.now(), changed=false;
+    if(!keys.length){ clearInterval(timerTick); timerTick=null; return; }
+    keys.forEach(function(k){
+      var tm=cookTimers[k], left=tm.endAt-now;
+      document.querySelectorAll('[data-timer="'+k+'"]').forEach(function(el){ el.textContent=fmtCountdown(left); });
+      if(left<=0&&!tm.ringing){ tm.ringing=true; tm.rangAt=now; changed=true; showToast('⏰ '+tm.label+' — time’s up'); }
+      if(tm.ringing&&now-(tm.rangAt||now)<180000&&Math.floor((now-(tm.rangAt||now))/500)%6===0) ringAlarm();
+    });
+    if(changed){ saveTimers(); refreshTimerViews(); }
+  },500);
+}
+function unlockAlarmAudio(){
+  try{ if(!alarmAudio) alarmAudio=new (window.AudioContext||window.webkitAudioContext)(); if(alarmAudio.state==='suspended') alarmAudio.resume(); }catch(e){}
+}
+function ringAlarm(){
+  try{ if(navigator.vibrate) navigator.vibrate([300,150,300]); }catch(e){}
+  if(!alarmAudio) return;
+  try{
+    [0,0.25,0.5].forEach(function(dt){
+      var o=alarmAudio.createOscillator(), g=alarmAudio.createGain(), t0=alarmAudio.currentTime+dt;
+      o.frequency.value=880; g.gain.setValueAtTime(0.25,t0); g.gain.exponentialRampToValueAtTime(0.001,t0+0.2);
+      o.connect(g); g.connect(alarmAudio.destination); o.start(t0); o.stop(t0+0.22);
+    });
+  }catch(e){}
+}
+// Controls for one step (running countdown, ringing, or a start button)
+function stepTimerHTML(t,s){
+  if(s.handsOn||!(Number(s.mins)>0)) return '';
+  var key=timerKey(t,s), tm=cookTimers[key], stop='event.stopPropagation();';
+  if(tm&&tm.ringing) return '<div class="ck-timer ringing"><span>⏰ Time’s up</span><button onclick="'+stop+'clearTimer(\''+key+'\')">Stop</button><button onclick="'+stop+'addTimerMinute(\''+key+'\')">+1 min</button></div>';
+  if(tm) return '<div class="ck-timer running"><span>⏱ <b data-timer="'+key+'">'+fmtCountdown(tm.endAt-Date.now())+'</b></span><button onclick="'+stop+'addTimerMinute(\''+key+'\')">+1 min</button><button onclick="'+stop+'clearTimer(\''+key+'\')">&#10005;</button></div>';
+  return '<div class="ck-timer"><button class="ck-timer-start" onclick="'+stop+'startStepTimer(\''+esc(s.id)+'\')">&#9654; '+fmtCountdown(s.mins*60000)+' timer</button></div>';
+}
+// Running timers as compact chips (cooking-mode header and the floating strip)
+function timerChipsHTML(){
+  return Object.keys(cookTimers).map(function(k){
+    var tm=cookTimers[k];
+    return '<span class="ck-chip'+(tm.ringing?' ringing':'')+'" onclick="'+(tm.ringing?'clearTimer(\''+k+'\')':'')+'">'
+      +esc(tm.label)+' '+(tm.ringing?'⏰ Stop':'<b data-timer="'+k+'">'+fmtCountdown(tm.endAt-Date.now())+'</b>')+'</span>';
+  }).join('');
+}
+// Outside cooking mode, running timers float at the bottom of the app
+function renderTimerFloat(){
+  var el=document.getElementById('timer-float'); if(!el) return;
+  var any=Object.keys(cookTimers).length&&!cook;
+  el.style.display=any?'':'none';
+  if(any) el.innerHTML=timerChipsHTML();
+}
+
 function setCooks(n){ if(cook){ cook.cooks=n; renderCookMode(); } }
 function toggleCookStep(id){ if(!cook) return; cook.done[id]=!cook.done[id]; renderCookMode(); }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+// Timers still running from before a reload
+ensureTimerTick(); renderTimerFloat();
+
 // Service worker keeps the app itself available offline (see sw.js)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function(){

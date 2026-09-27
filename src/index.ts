@@ -153,12 +153,13 @@ const OPTIMIZE_SCHEMA = {
         properties: {
           id: str,
           kind: { type: 'string', enum: ['prep', 'cook'] },
+          label: str,
           text: str,
           mins: { type: 'number' },
           handsOn: { type: 'boolean' },
           after: strList,
         },
-        required: ['id', 'kind', 'text', 'mins', 'handsOn', 'after'],
+        required: ['id', 'kind', 'label', 'text', 'mins', 'handsOn', 'after'],
         additionalProperties: false,
       },
     },
@@ -191,6 +192,8 @@ RULES
   Don't add new ingredients or change the dish.
 - steps: ids "s1", "s2", ... in the order a single cook should do them.
   kind "prep" for mise en place, "cook" for the rest.
+  label: 2-5 word summary for a timeline, starting with a verb, e.g. "Chop vegetables",
+  "Wash and start rice", "Bake salmon". Clear enough to know which step it is.
   mins: realistic minutes for the step at home pace.
   handsOn: false when the cook is free during the step (oven, simmering unattended,
   resting, marinating, preheating, water coming to a boil); true otherwise.

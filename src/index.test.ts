@@ -318,6 +318,7 @@ describe('Anthropic calls', () => {
     const req = calls[0].body;
     expect(req.output_config.effort).toBe('medium');
     expect(req.output_config.format.schema.properties.steps.items.required).toContain('handsOn');
+    expect(req.output_config.format.schema.properties.steps.items.required).toContain('label');
     expect(req.messages[0].content).toContain('2. Mince more garlic.');
   });
 
