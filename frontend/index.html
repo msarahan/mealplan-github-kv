@@ -259,6 +259,11 @@ body.cooking #app{display:none}
 .side-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 .side-name{font-size:12px;font-weight:600;color:var(--ink);flex:1}
 .side-meta{font-size:11px;color:var(--ink-light)}
+.side-save{background:var(--clay-light);border:1px solid #e8c4b0;border-radius:20px;padding:2px 9px;font-family:'DM Sans',sans-serif;font-size:11px;color:var(--clay-dark);cursor:pointer}
+.mn-row{display:flex;align-items:center;gap:10px;margin-top:6px}
+.mn-row label{width:120px;flex-shrink:0;font-size:12px;color:var(--ink-mid)}
+.mn-input{flex:1;padding:6px 9px;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--sand);color:var(--ink)}
+.mn-input:focus{outline:none;border-color:var(--sage);background:var(--white)}
 .side-del{background:none;border:none;color:var(--ink-light);cursor:pointer;font-size:13px;padding:0 2px}
 .lib-badge{font-size:11px;flex-shrink:0}
 .recipe-diets{font-size:10px;color:var(--sage-dark);margin-top:2px}
@@ -485,6 +490,16 @@ body.cooking #app{display:none}
       </div>
     </div>
     <div class="card">
+      <div class="card-title">&#127869; Meals</div>
+      <div class="param-row">
+        <div class="param-label"><span class="param-name">Meals per day</span><span class="param-val" id="meals-val">3</span></div>
+        <input type="range" min="2" max="5" value="3" step="1" id="meals-slider"
+          oninput="mealsPerDay=+this.value;document.getElementById('meals-val').textContent=mealsPerDay;rebuildSrvTable();renderMealNames();saveSettings()">
+      </div>
+      <div id="meal-names"></div>
+      <div class="srv-note" style="margin-top:7px">Name your meals however your household thinks of them. Claude uses the names when planning.</div>
+    </div>
+    <div class="card">
       <div class="card-title">&#128106; Household servings</div>
       <div class="srv-scroll"><div id="srv-table-wrap"></div></div>
       <div class="srv-note">Servings per meal per day of week. Weekend columns are shaded.</div>
@@ -531,11 +546,6 @@ body.cooking #app{display:none}
           <div class="param-label"><span class="param-name">Days</span><span class="param-val" id="days-val">7</span></div>
           <input type="range" min="1" max="14" value="7" step="1" id="days-slider"
             oninput="planDays=+this.value;document.getElementById('days-val').textContent=planDays;saveSettings()">
-        </div>
-        <div class="param-row">
-          <div class="param-label"><span class="param-name">Meals per day</span><span class="param-val" id="meals-val">3</span></div>
-          <input type="range" min="2" max="5" value="3" step="1" id="meals-slider"
-            oninput="mealsPerDay=+this.value;document.getElementById('meals-val').textContent=mealsPerDay;rebuildSrvTable();saveSettings()">
         </div>
       </div>
       <div class="card">
@@ -670,6 +680,7 @@ var leftoverLunches = 0;
 var libraryShare    = 'some';  // off | some | most: how much of a generated plan uses saved recipes
 var beanPrep        = 'can';   // can | soak | pressure: canned beans, or cook dried beans in batches
 var prepDays        = [];      // preferred make-ahead days, 0=Mon..6=Sun; empty = no preference
+var mealNames       = {};      // custom display names by meal type, e.g. {dinner:'Supper'}
 var checkedItems    = new Set();
 var customItems     = [];
 var savedRecipes    = [];
@@ -825,7 +836,7 @@ function settingsObj() {
   return {
     activeDiets: Array.from(activeDiets), optPriority: optPriority,
     planDays: planDays, mealsPerDay: mealsPerDay,
-    householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays,
+    householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays, mealNames: mealNames,
     customItems: customItems,
     cal:     document.getElementById('cal-target').value,
     protein: document.getElementById('protein-target').value,
@@ -842,12 +853,13 @@ function saveSettings() {
 function resetSettings() {
   activeDiets = new Set(['climatarian']);
   optPriority = OPT_DEFS.map(function(o){ return o.id; });
-  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; customItems = [];
+  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; mealNames = {}; customItems = [];
   householdServings = { breakfast:[2,2,2,2,2,4,4], lunch:[2,2,2,2,2,4,4], dinner:[4,4,4,4,4,4,4], snack:[2,2,2,2,2,2,2] };
   document.getElementById('days-slider').value = 7;
   document.getElementById('days-val').textContent = 7;
   document.getElementById('meals-slider').value = 3;
   document.getElementById('meals-val').textContent = 3;
+  renderMealNames();
   document.getElementById('cal-target').value = 2000;
   document.getElementById('protein-target').value = 120;
   document.getElementById('carbs-target').value = 220;
@@ -868,11 +880,13 @@ function applySettings(s) {
   if (s.libraryShare)      libraryShare = s.libraryShare;
   if (s.beanPrep)          beanPrep = s.beanPrep;
   if (Array.isArray(s.prepDays)) prepDays = s.prepDays;
+  if (s.mealNames&&typeof s.mealNames==='object') mealNames = s.mealNames;
   if (s.customItems)       customItems = s.customItems;
   document.getElementById('days-slider').value = planDays;
   document.getElementById('days-val').textContent = planDays;
   document.getElementById('meals-slider').value = mealsPerDay;
   document.getElementById('meals-val').textContent = mealsPerDay;
+  renderMealNames();
   if (s.cal)     document.getElementById('cal-target').value = s.cal;
   if (s.protein) document.getElementById('protein-target').value = s.protein;
   if (s.carbs)   document.getElementById('carbs-target').value = s.carbs;
@@ -1040,7 +1054,40 @@ function buildOptList() {
 }
 
 // ── Servings table ────────────────────────────────────────────────────────────
-var MEAL_LABELS = {breakfast:'Breakfast',lunch:'Lunch',dinner:'Dinner',snack:'Snack','mid-morning snack':'Mid-am','afternoon snack':'Aft snack'};
+var MEAL_LABELS = {breakfast:'Breakfast',lunch:'Lunch',dinner:'Dinner',snack:'Snack','mid-morning snack':'Mid-morning snack','afternoon snack':'Afternoon snack'};
+// Meal slots keep their built-in type (breakfast, lunch, ...) for planning rules
+// (leftovers, prep timing, recipe matching); households can give each a display name.
+function mealLabel(type){ return (mealNames[type]&&mealNames[type].trim())||MEAL_LABELS[type]||type||'Meal'; }
+function renderMealNames(){
+  var el=document.getElementById('meal-names'); if(!el) return;
+  el.innerHTML=getMealTypes().map(function(t){
+    return '<div class="mn-row"><label for="mn-'+t.replace(/\s/g,'-')+'">'+esc(MEAL_LABELS[t]||t)+'</label>'
+      +'<input id="mn-'+t.replace(/\s/g,'-')+'" class="mn-input" type="text" maxlength="30" value="'+esc(mealNames[t]||'')+'" placeholder="'+esc(MEAL_LABELS[t]||t)+'"'
+      +' onchange="setMealName(\''+t+'\',this.value)"></div>';
+  }).join('');
+}
+// "Monday dinner" -> "Monday Supper" (longest type first so "snack" doesn't match inside "afternoon snack")
+function prettyMealRef(ref){
+  var types=Object.keys(MEAL_LABELS).sort(function(a,b){ return b.length-a.length; });
+  for(var i=0;i<types.length;i++){
+    var re=new RegExp('\\b'+types[i].replace(/[-\s]/g,'[-\\s]')+'\\b','i');
+    if(re.test(ref)) return ref.replace(re,mealLabel(types[i]));
+  }
+  return ref;
+}
+// For prompts: what the household calls each meal slot (only the renamed ones)
+function mealNamesNote(types){
+  var named=types.filter(function(t){ return mealNames[t]; });
+  if(!named.length) return '';
+  return ' (the household calls these: '+named.map(function(t){ return t+' = "'+mealNames[t]+'"'; }).join(', ')
+    +'; plan food that suits each name, but keep the original meal types in "type")';
+}
+function setMealName(type,name){
+  name=(name||'').trim();
+  if(name&&name!==MEAL_LABELS[type]) mealNames[type]=name; else delete mealNames[type];
+  saveSettings(); rebuildSrvTable();
+  if(currentPlan&&currentPlan.days) renderPlan(currentPlan);
+}
 function getMealTypes() {
   if (mealsPerDay===2) return ['breakfast','dinner'];
   if (mealsPerDay===3) return ['breakfast','lunch','dinner'];
@@ -1055,7 +1102,7 @@ function rebuildSrvTable() {
   DOW.forEach(function(d, i){ html += '<th' + (WEEKEND.indexOf(i) >= 0 ? ' class="srv-col-weekend"' : '') + '>' + d + '</th>'; });
   html += '</tr></thead><tbody>';
   types.forEach(function(t){
-    html += '<tr><td>' + (MEAL_LABELS[t]||t) + '</td>';
+    html += '<tr><td>' + esc(mealLabel(t)) + '</td>';
     DOW.forEach(function(d, di){
       var v = householdServings[t] && householdServings[t][di] != null ? householdServings[t][di] : (WEEKEND.indexOf(di)>=0?4:2);
       html += '<td' + (WEEKEND.indexOf(di)>=0?' class="srv-col-weekend"':'') + '>'
@@ -1534,7 +1581,7 @@ function renderHistoryList(){
         day.meals.forEach(function(meal){
           if(meal._placeholder) return;
           mealRows+='<div style="font-size:12px;color:var(--ink);padding:1px 0 1px 8px">'+esc(meal.name||'')
-            +(meal.type?'<span style="font-size:10px;color:var(--ink-light);margin-left:5px">'+esc(meal.type)+'</span>':'')+'</div>';
+            +(meal.type?'<span style="font-size:10px;color:var(--ink-light);margin-left:5px">'+esc(mealLabel(meal.type))+'</span>':'')+'</div>';
         });
         mealRows+='</div>';
       });
@@ -1723,7 +1770,7 @@ function buildPrompt() {
         return '  Priority '+(i+1)+' (weight '+w+'): '+desc;
       }).join('\n');
   if (leftoverLunches>0) optLines+='\nLEFTOVER LUNCHES: Include exactly '+leftoverLunches+' leftover lunch(es). For each: mark the source dinner with "leftoversForLunch":true AND replace an appropriate LATER weekday lunch slot with {"type":"lunch","name":"[dinner name]","isLeftover":true,"sourceDinner":"[dinner name]"}. Choose the leftover day based on food safety and taste quality — fish/seafood within 2 days, poultry/meat within 3 days, vegetarian/grains/legumes within 4-5 days. The leftover does NOT have to be the very next day.';
-  return dietSection+'\n\nMEALS PER DAY: '+types.join(', ')+'\nDAYS: '+planDays
+  return dietSection+'\n\nMEALS PER DAY: '+types.join(', ')+mealNamesNote(types)+'\nDAYS: '+planDays
     +'\nDAILY TARGETS: ~'+cal+' kcal, ~'+pro+'g protein, ~'+carb+'g carbs\n\n'
     +optLines
     +librarySection()
@@ -2045,14 +2092,14 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   if (meal._placeholder) {
     return '<div class="meal-card placeholder-card" id="meal-'+di+'-'+mi+'" onclick="openPicker('+di+','+mi+')">'
       +'<div class="meal-card-header"><div class="meal-card-left">'
-      +'<span class="meal-type-badge '+esc(meal.type)+'">'+esc(meal.type)+'</span>'
+      +'<span class="meal-type-badge '+esc(meal.type)+'">'+esc(mealLabel(meal.type))+'</span>'
       +'<span class="placeholder-name">+ Pick a recipe</span>'
       +'</div></div></div>';
   }
   if (meal.isLeftover) {
     return '<div class="meal-card leftover-card" id="meal-'+di+'-'+mi+'">'
       +'<div class="meal-card-header"><div class="meal-card-left">'
-      +'<span class="meal-type-badge lunch">lunch</span>'
+      +'<span class="meal-type-badge lunch">'+esc(mealLabel('lunch'))+'</span>'
       +'<span class="leftover-name">&#127973; Leftovers: '+esc(meal.sourceDinner||'prev dinner')+'</span>'
       +'</div></div></div>';
   }
@@ -2064,7 +2111,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   var html='<div class="meal-card'+(startOpen?' open':'')+'" id="meal-'+di+'-'+mi+'">'
     +'<div class="meal-card-header" onclick="toggleMealCard(this)">'
     +'<div class="meal-card-left">'
-    +'<span class="meal-type-badge '+type+'">'+type+'</span>'
+    +'<span class="meal-type-badge '+type+'">'+esc(mealLabel(meal.type))+'</span>'
     +'<span class="meal-name">'+esc(meal.name||'')
     +(mealSides(meal).length?'<span class="meal-sides"> + '+esc(mealSides(meal).map(function(s){ return s.name; }).join(' + '))+'</span>':'')+'</span>'
     +(meal.libraryId?'<span class="lib-badge" title="From your saved recipes">&#128218;</span>':'')
@@ -2115,6 +2162,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     html+='<div class="side-block"><div class="side-head"><span class="side-name">Side: '+esc(side.name)
       +(side.libraryId?' <span class="lib-badge" title="From your saved recipes">&#128218;</span>':'')+'</span>'
       +'<span class="side-meta">'+[side.calories?side.calories+' kcal':null,side.prepMins?side.prepMins+' min':null].filter(Boolean).join(' &middot; ')+'</span>'
+      +(side.libraryId?'':'<button class="side-save" onclick="saveSideAsRecipe('+di+','+mi+','+si+')" title="Save this side to your recipes">&#x2665; Save</button>')
       +'<button class="side-del" onclick="removeSide('+di+','+mi+','+si+')" title="Remove this side">&#10005;</button></div>'
       +'<ul class="ingredients-list">'+scaleIngs(effectiveIngs(side),dispSrv).map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul>'
       +((side.steps||[]).length?'<ol class="steps-list">'+side.steps.map(function(s,k){ return '<li><span class="step-num">'+(k+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; }).join('')+'</ol>':'')
@@ -2125,7 +2173,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   if(meal.steps&&meal.steps.length) html+='<button class="meal-act-btn sage" onclick="openCookMode(\'meal\','+di+','+mi+')">&#129489;&#8205;&#127859; Cook</button>';
   html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+')">&#x1F504; Swap</button>';
   html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+',true)" title="Add a side dish">&#43; Side</button>';
-  html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
+  if(!meal.libraryId) html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
   html+='<button class="meal-act-btn" onclick="clearMeal('+di+','+mi+')" title="Empty this slot (e.g. eating out)">&#10005; Clear</button>';
   html+='</div></div></div>';
   return html;
@@ -2236,7 +2284,7 @@ function dayPrepBoxHTML(entries) {
     html+='<div class="day-prep-task">'+esc(t.task)
       +(e.tonight?' <span class="dpt-when">(tonight, for tomorrow)</span>':'')
       +(e.nightBefore?' <span class="dpt-when">(the night before)</span>':'')
-      +(t.meals&&t.meals.length?'<div class="dpt-meta">For '+esc(t.meals.join(', '))
+      +(t.meals&&t.meals.length?'<div class="dpt-meta">For '+esc(t.meals.map(prettyMealRef).join(', '))
         +(t.keepsDays?' &middot; keeps '+t.keepsDays+' days':'')+'</div>':'')
       +(t.qualityNote?'<div class="dpt-meta">'+esc(t.qualityNote)+'</div>':'')
       +(e.offDay?'<div class="dpt-off">Not one of your make-ahead days &mdash; needed here to stay fresh</div>':'')
@@ -2327,7 +2375,7 @@ function enrichGroceryWithSources(plan) {
       day.meals.forEach(function(meal) {
         if (meal.isLeftover || meal._placeholder || !meal.ingredients) return;
         mealDishes(meal).forEach(function(dish) {
-        var label = day.dayName + ' ' + meal.type.charAt(0).toUpperCase() + meal.type.slice(1) + ': ' + dish.name;
+        var label = day.dayName + ' ' + mealLabel(meal.type) + ': ' + dish.name;
         (dish.ingredients||[]).forEach(function(ing) {
           var p = parseIng(ing);
           var rKey = ingKey(p.rest || ing);
@@ -2647,14 +2695,34 @@ async function classifyRecipes(){
 }
 
 function saveMealAsRecipe(di,mi){
-  var meal=currentPlan.days[di].meals[mi]; if(!meal||meal.isLeftover) return;
-  if(savedRecipes.some(function(r){ return r.name.toLowerCase()===meal.name.toLowerCase(); })){ alert('"'+meal.name+'" is already saved.'); return; }
-  var recipe={id:'r-'+Date.now(),name:meal.name,tags:meal.tags||[],prepMins:meal.prepMins||null,
-    calories:meal.calories||null,protein:meal.protein||null,carbs:meal.carbs||null,fat:meal.fat||null,
-    servings:1,ingredients:meal._baseIngs||meal.ingredients||[],steps:meal.steps||[],
-    sourceUrl:'',notes:'',mealTypes:[meal.type],savedAt:Date.now()};
-  savedRecipes.unshift(recipe); pushRecipes(); renderRecipesTab();
-  var btn=document.getElementById('save-btn-'+di+'-'+mi); if(btn){btn.textContent='Saved!';btn.disabled=true;}
+  var meal=currentPlan.days[di].meals[mi]; if(!meal||meal.isLeftover||meal._placeholder) return;
+  saveDishToLibrary(meal, meal.type);
+}
+function saveSideAsRecipe(di,mi,si){
+  var side=mealSides(currentPlan.days[di].meals[mi])[si]; if(!side) return;
+  saveDishToLibrary(side, 'side');
+}
+// Save a main or side to the recipe library and link it (libraryId), so cooking
+// feedback and revisions apply to the saved recipe. A recipe with the same name
+// already in the library is linked instead of duplicated.
+function saveDishToLibrary(dish, mealType){
+  var existing=savedRecipes.find(function(r){ return r.name.toLowerCase()===String(dish.name||'').toLowerCase(); });
+  if(existing){
+    dish.libraryId=existing.id;
+    showToast('“'+existing.name+'” is already in your recipes — linked');
+  } else {
+    var recipe={id:'r-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),name:dish.name,tags:dish.tags||[],prepMins:dish.prepMins||null,
+      calories:dish.calories||null,protein:dish.protein||null,carbs:dish.carbs||null,fat:dish.fat||null,
+      servings:1,ingredients:(dish._baseIngs||dish.ingredients||[]).slice(),steps:(dish.steps||[]).slice(),
+      sourceUrl:'',notes:'',mealTypes:[mealType],savedAt:Date.now()};
+    // Keep what cooking it has already taught us
+    ['optimized','cookingNotes','revisions'].forEach(function(k){ if(dish[k]) recipe[k]=dish[k]; });
+    savedRecipes.unshift(recipe);
+    dish.libraryId=recipe.id;
+    showToast('Saved “'+recipe.name+'” to your recipes');
+  }
+  pushRecipes(); pushPlan(currentPlan);
+  renderPlan(currentPlan); renderRecipesTab();
 }
 
 function deleteRecipe(id){
@@ -2914,7 +2982,7 @@ function openPicker(di,mi,side){
   document.getElementById('picker-title').innerHTML=side
     ? '&#43; Side for '+esc(meal.name)
     : meal._placeholder
-    ? '&#127869; '+esc(currentPlan.days[di].dayName)+' '+esc(meal.type) : '&#x1F504; Swap meal';
+    ? '&#127869; '+esc(currentPlan.days[di].dayName)+' '+esc(mealLabel(meal.type)) : '&#x1F504; Swap meal';
   var p=document.getElementById('picker-prompt'); if(p){ p.value=''; p.placeholder=side?'What kind of side? (optional)':'What are you in the mood for? (optional)'; }
   var s=document.getElementById('picker-search'); if(s) s.value='';
   updateNetStatus();
