@@ -6,3 +6,6 @@ export const MODEL = 'claude-opus-5';
 
 // Max recipes per POST /classify-diets call (the frontend sends batches of this size)
 export const CLASSIFY_BATCH = 25;
+
+// Max steps accepted by POST /optimize-steps
+export const MAX_OPTIMIZE_STEPS = 40;

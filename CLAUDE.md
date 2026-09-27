@@ -51,6 +51,7 @@ All endpoints return JSON with CORS headers (`Access-Control-Allow-Origin: *`).
 | PUT | `/recipes/:code` | Save recipe library |
 | POST | `/generate` | Proxy to Anthropic API (keeps API key server-side) |
 | POST | `/parse-recipe` | Fetch URL server-side + extract recipe JSON via Claude |
+| POST | `/optimize-steps` | Rewrite recipe steps for cooking mode (prep once, timings, dependencies) via Claude |
 
 ## KV key schema
 ```
