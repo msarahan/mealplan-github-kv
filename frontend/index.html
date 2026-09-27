@@ -126,6 +126,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .opt-hint{font-size:10px;color:var(--ink-light);margin-top:1px}
 .opt-note{font-size:10px;color:var(--ink-light);margin-top:6px;line-height:1.4}
 /* Generate */
+.plan-actions{display:flex;gap:8px;margin-bottom:12px}
+.new-plan-btn{flex:1;padding:10px;background:var(--sage);color:#fff;border:none;border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer}
+.new-plan-btn.open{background:var(--sand);color:var(--ink-mid);border:1.5px solid var(--sand-dark)}
+.history-btn{padding:10px 14px;background:none;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--ink-mid);cursor:pointer}
+.new-plan-panel{margin-bottom:18px;padding-bottom:14px;border-bottom:1.5px solid var(--sand-dark)}
 .generate-btn{width:100%;padding:14px;background:var(--sage);color:white;border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px}
 .generate-btn:disabled{background:var(--sage-mid);cursor:not-allowed}
 .spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.4);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite}
@@ -395,33 +400,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       </div>
     </div>
     <div class="card">
-      <div class="card-title">&#128198; Plan length</div>
-      <div class="param-row">
-        <div class="param-label"><span class="param-name">Days</span><span class="param-val" id="days-val">7</span></div>
-        <input type="range" min="1" max="14" value="7" step="1" id="days-slider"
-          oninput="planDays=+this.value;document.getElementById('days-val').textContent=planDays;saveSettings()">
-      </div>
-      <div class="param-row">
-        <div class="param-label"><span class="param-name">Meals per day</span><span class="param-val" id="meals-val">3</span></div>
-        <input type="range" min="2" max="5" value="3" step="1" id="meals-slider"
-          oninput="mealsPerDay=+this.value;document.getElementById('meals-val').textContent=mealsPerDay;rebuildSrvTable();saveSettings()">
-      </div>
-    </div>
-    <div class="card">
       <div class="card-title">&#128106; Household servings</div>
       <div class="srv-scroll"><div id="srv-table-wrap"></div></div>
       <div class="srv-note">Servings per meal per day of week. Weekend columns are shaded.</div>
-    </div>
-    <div class="card" id="leftover-card" style="display:none">
-      <div class="card-title">&#127973; Leftover lunches</div>
-      <div class="leftover-row">
-        <label>Weekday lunches from previous dinner leftovers</label>
-        <select id="leftover-count" onchange="leftoverLunches=+this.value;saveSettings()">
-          <option value="0">None</option><option value="1">1</option><option value="2">2</option>
-          <option value="3">3</option><option value="4">4</option><option value="5">5</option>
-        </select>
-      </div>
-      <div class="srv-note" style="margin-top:7px">Those dinners cook extra portions equal to the next day's lunch serving count.</div>
     </div>
     <div class="card">
       <div class="card-title">&#128202; Daily nutrition targets</div>
@@ -430,21 +411,6 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
         <div class="macro-field"><label>Protein (g)</label><input type="number" id="protein-target" value="120" min="40" max="300" step="5" onchange="saveSettings()"></div>
         <div class="macro-field"><label>Carbs (g)</label><input type="number" id="carbs-target" value="220" min="50" max="500" step="5" onchange="saveSettings()"></div>
       </div>
-    </div>
-    <div class="card">
-      <div class="card-title">&#128218; Your saved recipes</div>
-      <div class="leftover-row">
-        <label>How much of a generated plan comes from your recipe library</label>
-        <select id="library-share" onchange="libraryShare=this.value;saveSettings()">
-          <option value="off">None</option><option value="some">Some (~1/3)</option><option value="most">Most (~2/3)</option>
-        </select>
-      </div>
-      <div class="srv-note" style="margin-top:7px">Only recipes that fit your dietary approach are used. Claude plans the rest around them.</div>
-    </div>
-    <div class="card">
-      <div class="card-title">&#9201; Make-ahead days</div>
-      <div class="recipe-filter-row" id="prep-days-row" style="margin-bottom:0"></div>
-      <div class="srv-note" style="margin-top:7px">Batch prep is scheduled on these days when the food will stay fresh until it&rsquo;s eaten; otherwise on the day it&rsquo;s needed. Leave all off to prep each item on the day it&rsquo;s first needed.</div>
     </div>
     <div class="card">
       <div class="card-title">&#129752; Beans</div>
@@ -463,22 +429,69 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <div class="opt-list" id="opt-list"></div>
       <div class="opt-note">Drag to reorder. Top = highest priority.</div>
     </div>
-    <button class="generate-btn" id="gen-btn" onclick="generatePlan()">&#10024; Generate my meal plan</button>
-    <button class="secondary-btn" onclick="buildManualPlan()">&#128203; Build plan from my recipes</button>
-    <button onclick="showHistoryModal()" style="display:block;width:100%;margin-top:8px;padding:9px;background:none;border:1.5px solid var(--sand-dark);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--ink-mid);cursor:pointer">&#128337; Plan history</button>
+    <div class="srv-note" style="text-align:center;margin:4px 0 8px">These settings apply to every plan. Start a new plan from the Plan tab.</div>
   </div>
 
   <!-- Plan -->
   <div class="section active" id="section-plan">
+    <div class="plan-actions">
+      <button class="new-plan-btn" id="new-plan-btn" onclick="toggleNewPlan()">&#43; New plan</button>
+      <button class="history-btn" onclick="showHistoryModal()">&#128337; History</button>
+    </div>
+    <!-- Settings for the next plan only; household-wide settings live on Configure -->
+    <div id="new-plan-panel" class="new-plan-panel" style="display:none">
+      <div class="card">
+        <div class="card-title">&#128198; Plan length</div>
+        <div class="param-row">
+          <div class="param-label"><span class="param-name">Days</span><span class="param-val" id="days-val">7</span></div>
+          <input type="range" min="1" max="14" value="7" step="1" id="days-slider"
+            oninput="planDays=+this.value;document.getElementById('days-val').textContent=planDays;saveSettings()">
+        </div>
+        <div class="param-row">
+          <div class="param-label"><span class="param-name">Meals per day</span><span class="param-val" id="meals-val">3</span></div>
+          <input type="range" min="2" max="5" value="3" step="1" id="meals-slider"
+            oninput="mealsPerDay=+this.value;document.getElementById('meals-val').textContent=mealsPerDay;rebuildSrvTable();saveSettings()">
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">&#9201; Make-ahead days</div>
+        <div class="recipe-filter-row" id="prep-days-row" style="margin-bottom:0"></div>
+        <div class="srv-note" style="margin-top:7px">Starts from your current plan&rsquo;s days &mdash; adjust for this week&rsquo;s schedule. Batch prep goes on these days when the food will stay fresh until it&rsquo;s eaten; otherwise on the day it&rsquo;s needed. Leave all off to prep each item on the day it&rsquo;s first needed.</div>
+      </div>
+      <div class="card" id="leftover-card" style="display:none">
+        <div class="card-title">&#127973; Leftover lunches</div>
+        <div class="leftover-row">
+          <label>Weekday lunches from previous dinner leftovers</label>
+          <select id="leftover-count" onchange="leftoverLunches=+this.value;saveSettings()">
+            <option value="0">None</option><option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+          </select>
+        </div>
+        <div class="srv-note" style="margin-top:7px">Those dinners cook extra portions equal to the next day's lunch serving count.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">&#128218; Your saved recipes</div>
+        <div class="leftover-row">
+          <label>How much of a generated plan comes from your recipe library</label>
+          <select id="library-share" onchange="libraryShare=this.value;saveSettings()">
+            <option value="off">None</option><option value="some">Some (~1/3)</option><option value="most">Most (~2/3)</option>
+          </select>
+        </div>
+        <div class="srv-note" style="margin-top:7px">Only recipes that fit your dietary approach are used. Claude plans the rest around them.</div>
+      </div>
+      <button class="generate-btn" id="gen-btn" onclick="generatePlan()">&#10024; Generate my meal plan</button>
+      <button class="secondary-btn" onclick="buildManualPlan()">&#128203; Build plan from my recipes</button>
+      <div class="srv-note" style="text-align:center;margin-top:8px">Diet, servings, nutrition targets, beans and priorities are on the <a href="#" onclick="switchTab('configure');return false">Configure</a> tab.</div>
+    </div>
     <div id="plan-content">
-      <div class="empty-state"><div class="es-icon">&#127807;</div><div class="es-title">No plan yet</div><div class="es-sub">Configure and tap Generate, or pick meals yourself.</div><button class="secondary-btn" style="max-width:260px;margin:14px auto 0" onclick="buildManualPlan()">&#128203; Build plan from my recipes</button></div>
+      <div class="empty-state"><div class="es-icon">&#127807;</div><div class="es-title">No plan yet</div><div class="es-sub">Tap <strong>New plan</strong> to have Claude generate one, or build it from your saved recipes.</div></div>
     </div>
   </div>
 
   <!-- Grocery -->
   <div class="section" id="section-grocery">
     <div id="grocery-content">
-      <div class="empty-state"><div class="es-icon">&#128722;</div><div class="es-title">No grocery list yet</div><div class="es-sub">Generate a plan first.</div></div>
+      <div class="empty-state"><div class="es-icon">&#128722;</div><div class="es-title">No grocery list yet</div><div class="es-sub">Create a plan on the Plan tab first.</div></div>
     </div>
   </div>
 
@@ -1239,8 +1252,8 @@ function renderPrepDays(){
 function togglePrepDay(i){
   var k=prepDays.indexOf(i);
   if (k>=0) prepDays.splice(k,1); else { prepDays.push(i); prepDays.sort(); }
+  // Only the next plan changes; the current plan keeps the days it was made with
   saveSettings(); renderPrepDays();
-  if (currentPlan&&currentPlan.days) renderPlan(currentPlan);
 }
 function setBeanPrep(v){
   beanPrep=v; saveSettings();
@@ -1680,12 +1693,29 @@ function progHTML(step){
 }
 
 // ── Generate ──────────────────────────────────────────────────────────────────
+// ── New-plan panel (per-plan settings on the Plan tab) ────────────────────────
+function toggleNewPlan(open) {
+  var panel=document.getElementById('new-plan-panel'), btn=document.getElementById('new-plan-btn');
+  if (open===undefined) open=panel.style.display==='none';
+  if (open&&currentPlan&&currentPlan.days) {
+    // Plans from before per-plan make-ahead days: keep the days they were shown with
+    if (!Array.isArray(currentPlan.prepDays)) { currentPlan.prepDays=prepDays.slice(); pushPlan(currentPlan); }
+    // Start the next plan from this one's make-ahead days; adjust for the week's schedule
+    prepDays=currentPlan.prepDays.slice(); saveSettings(); renderPrepDays();
+  }
+  panel.style.display=open?'':'none';
+  btn.innerHTML=open?'&#10005; Cancel':'&#43; New plan';
+  btn.classList.toggle('open',open);
+  if (open) { switchTab('plan'); panel.scrollIntoView({behavior:'smooth',block:'start'}); }
+}
+
 async function generatePlan() {
   if (!isOnline()) { showToast("You're offline — use “Build plan from my recipes” instead."); return; }
   if (currentPlan && currentPlan.days && currentPlan.days.length) {
     if (!confirm('Replace the current plan? The existing plan will be saved to history.')) return;
     saveToHistory(currentPlan);
   }
+  toggleNewPlan(false);  // progress shows in the plan area
   var btn=document.getElementById('gen-btn');
   btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Generating...';
   switchTab('plan'); pinnedMeals={};
@@ -1693,6 +1723,7 @@ async function generatePlan() {
   pc.innerHTML=progHTML(0); startProg(0);
   try {
     var plan=fillFromLibrary(await callClaude(buildPrompt(),9000));
+    plan.prepDays=prepDays.slice();  // this plan's make-ahead days (from the New plan panel)
     currentPlan=plan; renderPlan(plan);
     await checkAndFixFreshness(plan);
     var sub=document.getElementById('prog-sub'); if(sub) sub.textContent='Building grocery list...';
@@ -1724,9 +1755,10 @@ function buildManualPlan() {
     if (!confirm('Replace the current plan? The existing plan will be saved to history.')) return;
     saveToHistory(currentPlan);
   }
+  toggleNewPlan(false);
   var types=getMealTypes(), days=[];
   for (var d=0; d<planDays; d++) days.push({dayName:DAY_NAMES[d%7], meals:types.map(placeholderMeal)});
-  currentPlan={summary:{}, days:days, groceryList:[], customItems:customItems};
+  currentPlan={summary:{}, days:days, groceryList:[], customItems:customItems, prepDays:prepDays.slice()};
   pinnedMeals={};
   checkedItems=new Set(); kvPut('/checks/'+householdCode, []);
   refreshPlanLocal();
@@ -1952,8 +1984,7 @@ function renderPlan(plan) {
   var pc=document.getElementById('plan-content'), s=plan.summary||{};
   var html='<div id="backfill-bar" class="backfill-bar">'
     +'<p></p><button class="backfill-btn" id="backfill-btn" onclick="backfillPlan()">Backfill remaining meals</button></div>'
-    +'<div class="plan-header-row"><h2>Your '+plan.days.length+'-day plan</h2>'
-    +'<button class="regen-btn" onclick="switchTab(\'configure\')">&#9881; Edit</button></div>'
+    +'<div class="plan-header-row"><h2>Your '+plan.days.length+'-day plan</h2></div>'
     +'<div class="plan-stats">'
     +'<div class="stat-card"><div class="sc-val">'+(s.totalUniqueIngredients||'?')+'</div><div class="sc-label">unique ingredients</div></div>'
     +'<div class="stat-card"><div class="sc-val">'+(s.avgDailyCalories||'?')+'</div><div class="sc-label">avg kcal/day</div></div>'
@@ -2013,12 +2044,16 @@ function dowOf(plan, di){
 // "ready in time for the first use". If none fits, the day it's needed
 // (preferred:false). No preferred days set: the day it's needed.
 function schedulePrep(plan, needBy, lastDi, keepsDays) {
+  var days=planPrepDays(plan);
   var earliest=Math.max(-1, keepsDays?lastDi-(keepsDays-1):-1);
-  if (prepDays.length) {
-    for (var d=needBy; d>=earliest; d--) if (prepDays.indexOf(dowOf(plan,d))>=0) return {di:d, preferred:true};
+  if (days.length) {
+    for (var d=needBy; d>=earliest; d--) if (days.indexOf(dowOf(plan,d))>=0) return {di:d, preferred:true};
   }
-  return {di:Math.max(-1,needBy), preferred:!prepDays.length};
+  return {di:Math.max(-1,needBy), preferred:!days.length};
 }
+// Make-ahead days are chosen per plan (New plan panel) and stored on it. Plans made
+// before that fall back to the household's last-used days.
+function planPrepDays(plan) { return plan&&Array.isArray(plan.prepDays)?plan.prepDays:prepDays; }
 // {dayIndex: [{tip, offDay, tonight, nightBefore}]}, including -1 for the day before the plan
 function buildDayPrepMap(plan) {
   var tips=((plan.summary&&Array.isArray(plan.summary.sharedPrepTips))?plan.summary.sharedPrepTips:[]).concat(beanPrepTips(plan));
@@ -2053,7 +2088,7 @@ function dayPrepBoxHTML(entries) {
       +(t.meals&&t.meals.length?'<div class="dpt-meta">For '+esc(t.meals.join(', '))
         +(t.keepsDays?' &middot; keeps '+t.keepsDays+' days':'')+'</div>':'')
       +(t.qualityNote?'<div class="dpt-meta">'+esc(t.qualityNote)+'</div>':'')
-      +(e.offDay&&prepDays.length?'<div class="dpt-off">Not one of your make-ahead days &mdash; needed here to stay fresh</div>':'')
+      +(e.offDay?'<div class="dpt-off">Not one of your make-ahead days &mdash; needed here to stay fresh</div>':'')
       +'</div>';
   });
   return html+'</div>';
