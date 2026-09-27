@@ -186,6 +186,24 @@ body.cooking #app{display:none}
 .ta-row .ta-stop{background:#fff;color:var(--clay-dark);font-weight:600}
 .timer-float{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:150;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:400px;padding:0 12px}
 .timer-float .ck-chip{box-shadow:0 2px 8px rgba(0,0,0,.12);font-size:13px;padding:6px 12px}
+.ck-dish{display:inline-block;min-width:15px;height:15px;line-height:15px;border-radius:4px;text-align:center;font-style:normal;font-size:10px;font-weight:600;color:#fff;margin-right:4px;vertical-align:1px}
+.ck-dish.d0{background:var(--sage-dark)}.ck-dish.d1{background:var(--clay)}.ck-dish.d2{background:#5a3a8a}.ck-dish.d3{background:#1a6a7a}
+.ck-dishes{margin-top:6px;font-size:11px;color:var(--ink-mid);display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+.ck-dish-head{font-size:12px;font-weight:600;color:var(--ink);margin:10px 0 6px}
+.ck-mins{background:none;border:none;border-bottom:1px dashed var(--ink-light);padding:0;font-family:'DM Sans',sans-serif;font-size:11px;color:var(--ink-mid);cursor:pointer}
+.fb-box{margin-top:6px}
+.fb-title{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.fb-note{font-size:11px;color:var(--ink-light);margin-top:4px}
+.fb-actions{display:flex;gap:8px;margin-top:8px}
+.fb-actions button{padding:7px 14px;border-radius:20px;border:1px solid var(--sand-dark);background:var(--white);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--ink-mid);cursor:pointer}
+.fb-actions .fb-apply{background:var(--sage);border-color:var(--sage);color:#fff;font-weight:500}
+.fb-actions .fb-apply:disabled{background:var(--sage-mid);border-color:var(--sage-mid)}
+.fb-preview{font-size:12px;color:var(--ink-mid);margin-top:6px}
+.fb-preview ul,.fb-preview ol{padding-left:18px;margin:4px 0}
+.fb-wrap,.fb-history{margin-top:10px;font-size:12px;color:var(--ink-mid)}
+.fb-wrap summary,.fb-history summary{cursor:pointer;color:var(--sage-dark);font-weight:500}
+.fb-entry{margin-top:6px}.fb-entry ul{padding-left:18px;margin-top:2px}
+.fb-date{font-size:11px;color:var(--ink-light)}
 .ck-link{background:none;border:none;color:var(--sage-dark);font-family:'DM Sans',sans-serif;font-size:12px;text-decoration:underline;cursor:pointer;padding:0}
 .plan-actions{display:flex;gap:8px;margin-bottom:12px}
 .new-plan-btn{flex:1;padding:10px;background:var(--sage);color:#fff;border:none;border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer}
@@ -236,6 +254,12 @@ body.cooking #app{display:none}
 .today-badge{font-family:'DM Sans',sans-serif;font-size:10px;font-weight:600;background:var(--sage);color:#fff;border-radius:99px;padding:1px 7px;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
 .meal-card{background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--sand-dark);overflow:hidden;margin-bottom:6px}
 .placeholder-card{background:transparent;border-style:dashed;cursor:pointer}
+.meal-sides{color:var(--ink-mid);font-weight:400}
+.side-block{margin-top:10px;padding:8px 10px;border:1px solid var(--sand-dark);border-radius:var(--radius-sm);background:var(--sand)}
+.side-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.side-name{font-size:12px;font-weight:600;color:var(--ink);flex:1}
+.side-meta{font-size:11px;color:var(--ink-light)}
+.side-del{background:none;border:none;color:var(--ink-light);cursor:pointer;font-size:13px;padding:0 2px}
 .lib-badge{font-size:11px;flex-shrink:0}
 .recipe-diets{font-size:10px;color:var(--sage-dark);margin-top:2px}
 .recipe-diets strong{font-weight:600}
@@ -1134,13 +1158,9 @@ function changeServings(di, mi, delta) {
   if (next===cur) return;
   // Back at the default: drop the override so household setting changes still apply
   if (next===defaultCookServings(meal,di)) delete meal.cookServings; else meal.cookServings=next;
-  var el=document.getElementById('srv-'+di+'-'+mi); if(el) el.textContent=next;
-  if (meal.ingredients && meal.ingredients.length) {
-    if (!meal._baseIngs) meal._baseIngs=meal.ingredients.slice();
-    var scaled=scaleIngs(effectiveIngs(meal),next);
-    var lis=document.getElementById('meal-'+di+'-'+mi).querySelectorAll('.ingredients-list li');
-    for (var i=0;i<lis.length&&i<scaled.length;i++) lis[i].textContent=scaled[i];
-  }
+  // Re-render the card so the main and every side rescale (kept open)
+  var card=document.getElementById('meal-'+di+'-'+mi);
+  if (card) { var tmp=document.createElement('div'); tmp.innerHTML=buildMealCardHTML(di,mi,meal,card.classList.contains('open')); card.parentNode.replaceChild(tmp.firstChild,card); }
   recomputeGroceryLocal();
   pushPlan(currentPlan);  // after recompute so the saved grocery list matches
   scheduleGroceryRefresh();
@@ -1261,6 +1281,26 @@ function effectiveIngs(meal){
 function usesConvertedBeans(meal){
   return beanPrep!=='can' && (meal._baseIngs||meal.ingredients||[]).some(function(i){ return !!cannedToCooked(i); });
 }
+
+// ── Multi-dish meals ──────────────────────────────────────────────────────────
+// A meal is its main recipe (the meal object itself, as always) plus optional
+// meal.sides: [{name, libraryId?, ingredients, steps, calories, protein, carbs,
+// fat, prepMins, tags, optimized?}]. All dishes share the meal's servings.
+function mealDishes(meal){
+  if (!meal||meal.isLeftover||meal._placeholder) return [];
+  return [meal].concat(Array.isArray(meal.sides)?meal.sides:[]);
+}
+function mealSides(meal){ return meal&&Array.isArray(meal.sides)?meal.sides:[]; }
+function mealEffectiveIngs(meal){ return [].concat.apply([],mealDishes(meal).map(effectiveIngs)); }
+// Per-serving nutrition for the whole meal (main + sides)
+function mealTotals(meal){
+  var t={calories:0,protein:0,carbs:0,fat:0,any:false};
+  mealDishes(meal).forEach(function(d){
+    ['calories','protein','carbs','fat'].forEach(function(k){ if(d[k]){ t[k]+=+d[k]||0; t.any=true; } });
+  });
+  return t;
+}
+function mealDisplayName(meal){ return [meal.name].concat(mealSides(meal).map(function(s){ return s.name; })).filter(Boolean).join(' + '); }
 // Batch-cook tasks for every "cooked <bean>" in the plan, split so each batch is
 // eaten within BEAN_KEEPS_DAYS of cooking. Same shape as Claude's sharedPrepTips.
 function beanPrepTips(plan){
@@ -1269,7 +1309,7 @@ function beanPrepTips(plan){
   plan.days.forEach(function(day,di){
     day.meals.forEach(function(meal){
       if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
-      scaleIngs(effectiveIngs(meal),mealCookServings(meal,di)).forEach(function(ing){
+      scaleIngs(mealEffectiveIngs(meal),mealCookServings(meal,di)).forEach(function(ing){
         var p=parseIng(ing), t=beanType(ing), u=(p.unit||'').toLowerCase();
         if (!t||!/^cooked\b/i.test(p.rest||'')||!VOL_TSP[u]) return;
         (byBean[t.label]=byBean[t.label]||{type:t,uses:[]}).uses.push({di:di,cups:p.qty*VOL_TSP[u]/48,ref:day.dayName+' '+meal.type,mealType:meal.type});
@@ -1335,7 +1375,7 @@ function recomputeGroceryLocal() {
     day.meals.forEach(function(meal,mi){
       if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
       var srv=mealCookServings(meal,di);
-      var base=effectiveIngs(meal);
+      var base=mealEffectiveIngs(meal);  // main + sides
       scaleIngs(base,srv).forEach(function(ing){
         var p=parseIng(ing), name=(p.rest||ing).split(',')[0].trim();
         // Keep the can size in the unit so sizes never merge:
@@ -1397,7 +1437,8 @@ function refreshSummary(plan){
     var dc=0, dp=0, any=false;
     d.meals.forEach(function(m){
       var src=m._placeholder?null:m.isLeftover?byName[m.sourceDinner||m.name]:m;
-      if (src&&src.calories){ dc+=+src.calories||0; dp+=+src.protein||0; any=true; }
+      var tot=src&&mealTotals(src);  // includes sides
+      if (tot&&tot.any){ dc+=tot.calories; dp+=tot.protein; any=true; }
     });
     if (any){ cal+=dc; pro+=dp; n++; }
   });
@@ -1631,14 +1672,34 @@ function fillMealFromLibrary(meal) {
   return true;
 }
 function hasIngredients(meal) { return !!(meal.ingredients&&meal.ingredients.length); }
+// Sides from Claude: fill library picks, drop ones with nothing to cook
+function fillSides(meal) {
+  if (!Array.isArray(meal.sides)) return;
+  meal.sides=meal.sides.filter(function(s){ return s&&(fillMealFromLibrary(s)||hasIngredients(s)); });
+  if (!meal.sides.length) delete meal.sides;
+}
 function fillFromLibrary(plan) {
   plan.days.forEach(function(day){
     day.meals.forEach(function(meal,mi){
       if (meal.isLeftover) return;
-      if (!fillMealFromLibrary(meal) && !hasIngredients(meal)) day.meals[mi]=placeholderMeal(meal.type);  // unknown id: leave the slot to pick
+      if (!fillMealFromLibrary(meal) && !hasIngredients(meal)) { day.meals[mi]=placeholderMeal(meal.type); return; }  // unknown id: leave the slot to pick
+      fillSides(meal);
     });
   });
   return plan;
+}
+
+// Prompt rules for adding side dishes to balance a meal
+function sidesRules() {
+  return '\n\nSIDE DISHES: a meal may add 1-2 simple sides in "sides" when the main alone leaves it unbalanced '
+    +'(too little vegetable, protein, fiber or whole grain, or far from the daily targets). This is a tradeoff: '
+    +'each side adds ingredients and prep time, so weigh it against the optimisation priorities. Prefer sides that '
+    +'reuse ingredients already in the week, take under 10 minutes, or can be made ahead (include those in sharedPrepTips). '
+    +'Many meals need no side. The meal\'s calories/protein/carbs/fat are the MAIN dish only; each side has its own, and '
+    +'the daily targets count main + sides. Sides use the same fields as a meal (without type/leftoversForLunch); '
+    +'a saved recipe can be a side as {"name":"<exact saved name>","libraryId":"<id>"}. '
+    +'Example: {"type":"dinner","name":"Lemon Herb Salmon",...,"sides":[{"name":"Garlicky Green Beans","tags":["quick"],"prepMins":10,'
+    +'"calories":90,"protein":3,"carbs":10,"fat":5,"ingredients":["1 cup green beans","1 tsp olive oil"],"steps":["Steam beans.","Toss with oil."]}]}';
 }
 
 function buildPrompt() {
@@ -1666,6 +1727,7 @@ function buildPrompt() {
     +'\nDAILY TARGETS: ~'+cal+' kcal, ~'+pro+'g protein, ~'+carb+'g carbs\n\n'
     +optLines
     +librarySection()
+    +sidesRules()
     +'\n\nINGREDIENT UNITS: US customary (cups, tbsp, tsp, oz, lb). Ingredients are for 1 serving.'
     +'\n\nsharedPrepTips: 3-5 batch-prep tasks as structured objects with fields: task (action + total quantity; if the step combines multiple ingredients spell them out inline, e.g. "Make 3 cups tomato-herb sauce by combining 2 cans crushed tomatoes with 1 tsp oregano and 1 tsp basil" — never just name the result without saying how to make it), keepsDays (integer — how many days it stays safe to eat refrigerated), qualityNote (optional — when texture/flavour starts to degrade before it becomes unsafe), meals (array of "DayName type" strings listing every meal in the plan that uses it).'
     +prepScheduleRules()+beanRules()
@@ -1680,9 +1742,11 @@ function buildGroceryPrompt(plan) {
   var lines='';
   plan.days.forEach(function(day,di){
     day.meals.forEach(function(meal,mi){
-      if(meal.isLeftover||!meal.ingredients) return;
+      if(meal.isLeftover||meal._placeholder||!meal.ingredients) return;
       var srv=mealCookServings(meal,di);
-      lines+=day.dayName+' '+meal.type+' (x'+srv+'): '+meal.name+' — '+effectiveIngs(meal).join(', ')+'\n';
+      mealDishes(meal).forEach(function(d){
+        lines+=day.dayName+' '+meal.type+' (x'+srv+'): '+d.name+' — '+effectiveIngs(d).join(', ')+'\n';
+      });
     });
   });
   return 'Produce a consolidated US grocery list for these meals.\n\n'+lines
@@ -1724,6 +1788,7 @@ function buildBackfillPrompt(pinnedSummary, slotsToFill, cal, pro, carb) {
     +'\n\nFor each slot generate a recipe balancing the day against pinned meals. US units, ingredients for 1 serving.'
     +beanRules()
     +librarySection('slots to fill','{"dayName":"<day>","type":"<meal type>","name":"<exact saved name>","libraryId":"<id>","leftoversForLunch":false,"prepNote":null,"batchNote":null}')
+    +sidesRules()
     +'\n\nReturn ONLY valid JSON:'
     +'{"meals":[{"dayName":"Monday","type":"lunch","name":"Recipe","tags":["quick"],'
     +'"prepMins":15,"calories":400,"protein":25,"carbs":40,'
@@ -1801,6 +1866,7 @@ async function generatePlan() {
     startProg(1);
     var grocery=await callClaude(buildGroceryPrompt(plan),8000);
     plan.groceryList=normalizeGroceryQtys(grocery.groceryList);
+    refreshSummary(plan);  // daily averages include sides
     completeProg();
     plan.customItems=customItems;
     await pushPlan(plan);
@@ -1954,7 +2020,8 @@ async function backfillPlan() {
       if(meal._placeholder){
         slotsToFill.push({di:di,mi:mi,type:meal.type,dayName:day.dayName});
       } else if(!meal.isLeftover){
-        dayExisting.push(meal.type+': '+meal.name+(meal.calories?' ('+meal.calories+' kcal, '+meal.protein+'g protein, '+meal.carbs+'g carbs)':''));
+        var tot=mealTotals(meal);  // main + sides
+        dayExisting.push(meal.type+': '+mealDisplayName(meal)+(tot.any?' ('+tot.calories+' kcal, '+tot.protein+'g protein, '+tot.carbs+'g carbs)':''));
       }
     });
     if(dayExisting.length) pinnedSummary+=day.dayName+': '+dayExisting.join('; ')+'\n';
@@ -1966,7 +2033,7 @@ async function backfillPlan() {
     result.meals.forEach(function(newMeal){
       var match=slotsToFill.filter(function(s){ return s.dayName===newMeal.dayName&&s.type===newMeal.type; })[0];
       // Saved recipes come back as {name, libraryId}; an unknown id leaves the slot empty
-      if(match&&(fillMealFromLibrary(newMeal)||hasIngredients(newMeal))) currentPlan.days[match.di].meals[match.mi]=newMeal;
+      if(match&&(fillMealFromLibrary(newMeal)||hasIngredients(newMeal))){ fillSides(newMeal); currentPlan.days[match.di].meals[match.mi]=newMeal; }
     });
     refreshPlanLocal();
   } catch(e){ alert('Backfill failed: '+e.message); }
@@ -1998,7 +2065,8 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     +'<div class="meal-card-header" onclick="toggleMealCard(this)">'
     +'<div class="meal-card-left">'
     +'<span class="meal-type-badge '+type+'">'+type+'</span>'
-    +'<span class="meal-name">'+esc(meal.name||'')+'</span>'
+    +'<span class="meal-name">'+esc(meal.name||'')
+    +(mealSides(meal).length?'<span class="meal-sides"> + '+esc(mealSides(meal).map(function(s){ return s.name; }).join(' + '))+'</span>':'')+'</span>'
     +(meal.libraryId?'<span class="lib-badge" title="From your saved recipes">&#128218;</span>':'')
     +'</div>';
   if(meal.leftoversForLunch) html+='<span class="extra-badge">+lunch</span>';
@@ -2018,16 +2086,18 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     +'<button class="serving-btn" onclick="changeServings('+di+','+mi+',1)">&#43;</button>'
     +'</div></div>';
 
+  // Nutrition for the whole meal (main + sides)
+  var tot=mealTotals(meal), sides=mealSides(meal);
   html+='<div class="macro-bar">'
-    +'<div class="macro-pill"><div class="mp-val">'+(meal.calories||'?')+'</div><div class="mp-label">kcal/srv</div></div>'
-    +'<div class="macro-pill"><div class="mp-val">'+(meal.protein||'?')+'g</div><div class="mp-label">protein/srv</div></div>'
-    +'<div class="macro-pill"><div class="mp-val">'+(meal.carbs||'?')+'g</div><div class="mp-label">carbs/srv</div></div>'
+    +'<div class="macro-pill"><div class="mp-val">'+(tot.calories||'?')+'</div><div class="mp-label">kcal/srv</div></div>'
+    +'<div class="macro-pill"><div class="mp-val">'+(tot.protein||'?')+'g</div><div class="mp-label">protein/srv</div></div>'
+    +'<div class="macro-pill"><div class="mp-val">'+(tot.carbs||'?')+'g</div><div class="mp-label">carbs/srv</div></div>'
     +'<div class="macro-pill"><div class="mp-val">'+(meal.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
     +'</div>';
 
   if(meal.ingredients&&meal.ingredients.length){
     var scaledIngs=scaleIngs(effectiveIngs(meal),dispSrv);
-    html+='<div class="detail-label">Ingredients</div><ul class="ingredients-list">';
+    html+='<div class="detail-label">Ingredients'+(sides.length?' &middot; '+esc(meal.name):'')+'</div><ul class="ingredients-list">';
     scaledIngs.forEach(function(ing){ html+='<li>'+esc(ing)+'</li>'; });
     html+='</ul>';
   }
@@ -2040,9 +2110,21 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   if(meal.prepNote)  html+='<div class="prep-note"><span class="pn-icon">&#10052;</span><span class="pn-text">'+esc(meal.prepNote)+'</span></div>';
   if(meal.batchNote) html+='<div class="prep-note batch"><span class="pn-icon">&#127859;</span><span class="pn-text">'+esc(meal.batchNote)+'</span></div>';
 
+  // Sides: same servings as the main
+  sides.forEach(function(side,si){
+    html+='<div class="side-block"><div class="side-head"><span class="side-name">Side: '+esc(side.name)
+      +(side.libraryId?' <span class="lib-badge" title="From your saved recipes">&#128218;</span>':'')+'</span>'
+      +'<span class="side-meta">'+[side.calories?side.calories+' kcal':null,side.prepMins?side.prepMins+' min':null].filter(Boolean).join(' &middot; ')+'</span>'
+      +'<button class="side-del" onclick="removeSide('+di+','+mi+','+si+')" title="Remove this side">&#10005;</button></div>'
+      +'<ul class="ingredients-list">'+scaleIngs(effectiveIngs(side),dispSrv).map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul>'
+      +((side.steps||[]).length?'<ol class="steps-list">'+side.steps.map(function(s,k){ return '<li><span class="step-num">'+(k+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; }).join('')+'</ol>':'')
+      +'</div>';
+  });
+
   html+='<div class="meal-action-row">';
   if(meal.steps&&meal.steps.length) html+='<button class="meal-act-btn sage" onclick="openCookMode(\'meal\','+di+','+mi+')">&#129489;&#8205;&#127859; Cook</button>';
   html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+')">&#x1F504; Swap</button>';
+  html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+',true)" title="Add a side dish">&#43; Side</button>';
   html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
   html+='<button class="meal-act-btn" onclick="clearMeal('+di+','+mi+')" title="Empty this slot (e.g. eating out)">&#10005; Clear</button>';
   html+='</div></div></div>';
@@ -2212,6 +2294,7 @@ async function swapMeal(di,mi,btn,customPrompt){
     if(!fillMealFromLibrary(data)&&!hasIngredients(data)) throw new Error('No recipe returned');
     data.type=meal.type;
     data.leftoversForLunch=meal.leftoversForLunch||false;
+    if(mealSides(meal).length) data.sides=meal.sides;  // keep the sides when swapping the main
     currentPlan.days[di].meals[mi]=data;
     syncLeftoverName(di,mi);
     var card=document.getElementById('meal-'+di+'-'+mi);
@@ -2242,9 +2325,10 @@ function enrichGroceryWithSources(plan) {
     var found = [];
     plan.days.forEach(function(day) {
       day.meals.forEach(function(meal) {
-        if (meal.isLeftover || !meal.ingredients) return;
-        var label = day.dayName + ' ' + meal.type.charAt(0).toUpperCase() + meal.type.slice(1) + ': ' + meal.name;
-        meal.ingredients.forEach(function(ing) {
+        if (meal.isLeftover || meal._placeholder || !meal.ingredients) return;
+        mealDishes(meal).forEach(function(dish) {
+        var label = day.dayName + ' ' + meal.type.charAt(0).toUpperCase() + meal.type.slice(1) + ': ' + dish.name;
+        (dish.ingredients||[]).forEach(function(ing) {
           var p = parseIng(ing);
           var rKey = ingKey(p.rest || ing);
           if (!rKey || !gKey || rKey.length < 3 || gKey.length < 3) return;
@@ -2255,6 +2339,7 @@ function enrichGroceryWithSources(plan) {
             var qtyStr = (p.qty && p.unit) ? (fmtQty(p.qty) || String(p.qty)) + ' ' + p.unit : ing;
             found.push({ meal: label, qty: qtyStr });
           }
+        });
         });
       });
     });
@@ -2471,6 +2556,9 @@ function renderRecipesTab(){
         html+='</ol>';
       }
       if(recipe.notes) html+='<div class="recipe-notes-view">'+esc(recipe.notes)+'</div>';
+      html+=revisionHistoryHTML(recipe);
+      var pendRev=revisions[revisionKey(recipe)];
+      html+='<details class="fb-wrap"'+(pendRev?' open':'')+' onclick="event.stopPropagation()"><summary>&#9998; How did it go? Revise this recipe</summary>'+feedbackBoxHTML(recipe,'recipe')+'</details>';
       if(recipe.sourceUrl) html+='<div style="margin-top:8px;font-size:11px;color:var(--ink-light)">Source: <a href="'+esc(recipe.sourceUrl)+'" target="_blank" style="color:var(--sage-dark)">'+esc(recipe.sourceUrl.replace(/^https?:\/\//,'').split('/')[0])+'</a></div>';
       var alreadyShared=globalRecipes.some(function(g){return g.id===recipe.id;});
       if(recipe.steps&&recipe.steps.length) html+='<button class="recipe-share-btn" style="margin-right:6px" onclick="openCookMode(\'recipe\',\''+recipe.id+'\');event.stopPropagation()">&#129489;&#8205;&#127859; Cooking mode</button>';
@@ -2820,12 +2908,14 @@ function addGlobalToLibrary(gid){
 function toggleGlobalCard(id){ var el=document.getElementById('gc-'+id); if(el) el.classList.toggle('open'); }
 
 // ── Recipe picker (pin to slot) ───────────────────────────────────────────────
-function openPicker(di,mi){
-  pickerTarget={di:di,mi:mi}; pickerShowAll=false;
+function openPicker(di,mi,side){
+  pickerTarget={di:di,mi:mi,side:!!side}; pickerShowAll=false;
   var meal=currentPlan.days[di].meals[mi];
-  document.getElementById('picker-title').innerHTML=meal._placeholder
+  document.getElementById('picker-title').innerHTML=side
+    ? '&#43; Side for '+esc(meal.name)
+    : meal._placeholder
     ? '&#127869; '+esc(currentPlan.days[di].dayName)+' '+esc(meal.type) : '&#x1F504; Swap meal';
-  var p=document.getElementById('picker-prompt'); if(p) p.value='';
+  var p=document.getElementById('picker-prompt'); if(p){ p.value=''; p.placeholder=side?'What kind of side? (optional)':'What are you in the mood for? (optional)'; }
   var s=document.getElementById('picker-search'); if(s) s.value='';
   updateNetStatus();
   renderPickerList('');
@@ -2840,7 +2930,9 @@ async function swapFromDialog(){
   var di=pickerTarget.di, mi=pickerTarget.mi;
   var prompt=document.getElementById('picker-prompt').value.trim();
   var btn=document.getElementById('picker-gen-btn');
+  var side=pickerTarget.side;
   closePicker();
+  if(side){ showToast('Finding a side…'); await suggestSide(di,mi,prompt); return; }
   var cardBtn=document.querySelector('#meal-'+di+'-'+mi+' .meal-act-btn');
   await swapMeal(di,mi,cardBtn,prompt);
 }
@@ -2854,8 +2946,18 @@ function renderPickerList(q){
   var filtered=savedRecipes.filter(function(r){return !lq||r.name.toLowerCase().indexOf(lq)>=0;});
   // Order: fits your diets, then not yet classified, then outside your diets (hidden
   // until asked for); within each, recipes tagged for this meal type first
-  var slotType=pickerTarget&&currentPlan?currentPlan.days[pickerTarget.di].meals[pickerTarget.mi].type:null;
-  var typeRank=function(r){ return slotType&&((r.mealTypes||[]).indexOf(slotType)>=0||(r.tags||[]).indexOf(slotType)>=0)?0:1; };
+  var slotMeal=pickerTarget&&currentPlan?currentPlan.days[pickerTarget.di].meals[pickerTarget.mi]:null;
+  var slotType=slotMeal?slotMeal.type:null;
+  // Adding a side: side-like recipes first, and never the main itself
+  if(pickerTarget&&pickerTarget.side){
+    slotType='side';
+    filtered=filtered.filter(function(r){ return r.id!==slotMeal.libraryId&&r.name!==slotMeal.name; });
+  }
+  var SIDE_RE=/\b(side|salad|slaw|vegetables?|veggies|greens|rice|potatoes|fries|bread|soup|fruit)\b/i;
+  var typeRank=function(r){
+    if(slotType==='side') return ((r.mealTypes||[]).indexOf('side')>=0||(r.tags||[]).some(function(t){ return SIDE_RE.test(t); })||SIDE_RE.test(r.name))?0:1;
+    return slotType&&((r.mealTypes||[]).indexOf(slotType)>=0||(r.tags||[]).indexOf(slotType)>=0)?0:1;
+  };
   var dietRank=function(r){ var f=fitsActiveDiets(r); return f===true?0:f===null?1:2; };
   filtered=filtered.slice().sort(function(a,b){ return dietRank(a)-dietRank(b)||typeRank(a)-typeRank(b); });
   var outside=filtered.filter(function(r){ return dietRank(r)===2; }).length;
@@ -2883,22 +2985,64 @@ function pinRecipe(recipeId){
   var di=pickerTarget.di, mi=pickerTarget.mi;
   var recipe=savedRecipes.filter(function(r){return r.id===recipeId;})[0]; if(!recipe) return;
   var existingMeal=currentPlan.days[di].meals[mi];
+  if(pickerTarget.side){
+    existingMeal.sides=mealSides(existingMeal).concat([dishFromRecipe(recipe)]);
+    closePicker(); refreshPlanLocal();
+    return;
+  }
   currentPlan.days[di].meals[mi]={
     type:existingMeal.type,name:recipe.name,libraryId:recipe.id,tags:recipe.tags,prepMins:recipe.prepMins,
     calories:recipe.calories,protein:recipe.protein,carbs:recipe.carbs,fat:recipe.fat,
     ingredients:recipe.ingredients,steps:recipe.steps,
     leftoversForLunch:existingMeal.leftoversForLunch||false,prepNote:null,batchNote:null
   };
+  if(mealSides(existingMeal).length) currentPlan.days[di].meals[mi].sides=existingMeal.sides;  // swapping the main keeps its sides
   syncLeftoverName(di,mi);
   closePicker(); refreshPlanLocal();
 }
+function dishFromRecipe(r){
+  return {name:r.name,libraryId:r.id,tags:r.tags||[],prepMins:r.prepMins,calories:r.calories,protein:r.protein,
+    carbs:r.carbs,fat:r.fat,ingredients:(r.ingredients||[]).slice(),steps:(r.steps||[]).slice()};
+}
+function removeSide(di,mi,si){
+  var meal=currentPlan.days[di].meals[mi];
+  meal.sides=mealSides(meal).filter(function(_,k){ return k!==si; });
+  if(!meal.sides.length) delete meal.sides;
+  refreshPlanLocal();
+}
+// Claude suggests one side that rounds out the meal (or picks one from the library)
+async function suggestSide(di,mi,request){
+  var meal=currentPlan.days[di].meals[mi], tot=mealTotals(meal);
+  var cal=document.getElementById('cal-target').value, pro=document.getElementById('protein-target').value;
+  var dl=Array.from(activeDiets).join(' or ');
+  var prompt='Suggest ONE simple side dish to serve with "'+mealDisplayName(meal)+'" ('+meal.type+', '+dl+' diet)'
+    +(request?' matching this request: "'+request+'"':'')+'. The meal now has ~'+(tot.calories||'?')+' kcal and ~'+(tot.protein||'?')+'g protein per serving; '
+    +'daily targets are ~'+cal+' kcal and ~'+pro+'g protein. Choose a side that improves the meal\'s balance (vegetables, fiber, protein or whole grains, whatever it lacks), '
+    +'with few extra ingredients and little prep; reuse ingredients from the main where possible. US units, ingredients for 1 serving.'
+    +beanRules();
+  var cands=libraryCandidates(25,function(r){ return r.id!==meal.libraryId&&r.name!==meal.name; });
+  if(cands.length){
+    prompt+='\n\nSAVED RECIPES (the household\'s own library): use one of these if it is a good side for this meal; '
+      +'otherwise invent one. To use one, return ONLY {"name":"<exact saved name>","libraryId":"<id>"}.\n'+libraryLines(cands)+'\n\nFor a new side,';
+  }
+  prompt+=' Return ONLY valid JSON: {"name":"Name","tags":["tag"],"prepMins":10,"calories":120,"protein":4,"carbs":15,"fat":5,"ingredients":["1 cup item"],"steps":["Step 1."]}';
+  try{
+    var side=await callClaude(prompt,700);
+    if(!fillMealFromLibrary(side)&&!hasIngredients(side)) throw new Error('No recipe returned');
+    meal.sides=mealSides(meal).concat([{name:side.name,libraryId:side.libraryId,tags:side.tags||[],prepMins:side.prepMins,
+      calories:side.calories,protein:side.protein,carbs:side.carbs,fat:side.fat,ingredients:side.ingredients,steps:side.steps||[]}]);
+    if(!meal.sides[meal.sides.length-1].libraryId) delete meal.sides[meal.sides.length-1].libraryId;
+    refreshPlanLocal();
+  }catch(e){ showToast('Couldn’t add a side: '+e.message); }
+}
 
 // ── Cooking mode ──────────────────────────────────────────────────────────────
-// Full-screen view of one recipe: scaled ingredients, a timeline, and big
-// checkable steps. Directions are optimized once by Claude (/optimize-steps) and
-// saved on the meal (and its saved recipe) as {hash, steps, changes}; the
-// schedule is computed here, so the 1- vs 2-cook view needs no extra call.
-var cook=null;  // {kind:'meal'|'recipe', di, mi, rid, cooks, done:{}, loading, error, showOriginal}
+// Full-screen view of a meal (main + sides) or a saved recipe: scaled
+// ingredients, one combined timeline, and big checkable steps. Each dish's
+// directions are optimized once by Claude (/optimize-steps) and saved on the dish
+// (and its saved recipe) as {hash, steps, changes}; the combined schedule is
+// computed here, so the 1- vs 2-cook view needs no extra call.
+var cook=null;  // {kind:'meal'|'recipe', di, mi, rid, cooks, done:{}, loading:{}, errors:{}, showOriginal, revision}
 var cookWakeLock=null;
 
 function hashStr(s){ var h=5381; for(var i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(36); }
@@ -2907,28 +3051,40 @@ function cookTarget(){
   if(cook.kind==='meal') return currentPlan&&currentPlan.days[cook.di]&&currentPlan.days[cook.di].meals[cook.mi];
   return savedRecipes.find(function(r){ return r.id===cook.rid; });
 }
+// The dishes being cooked: a meal's main + sides, or a single saved recipe
+function cookDishes(){
+  var t=cookTarget(); if(!t) return [];
+  return cook.kind==='meal'?mealDishes(t):[t];
+}
+function libRecipeOf(d){ return d&&d.libraryId?savedRecipes.find(function(r){ return r.id===d.libraryId; }):null; }
 // Directions hash: re-optimize when the recipe's steps or ingredients change
 function cookHash(t){ return hashStr(JSON.stringify([effectiveIngs(t),t.steps||[]])); }
-function cookServingsOf(t){ return cook.kind==='meal'?mealCookServings(t,cook.di):(t.servings||1); }
-// Valid saved optimization for the target (a meal can reuse its saved recipe's)
+function cookServings(){ var t=cookTarget(); return cook.kind==='meal'?mealCookServings(t,cook.di):(t.servings||1); }
+// Valid saved optimization for a dish (a meal's dish can reuse its saved recipe's)
 function cookOptimized(t){
   var h=cookHash(t);
   if(t.optimized&&t.optimized.hash===h) return t.optimized;
-  var lib=t.libraryId&&savedRecipes.find(function(r){ return r.id===t.libraryId; });
+  var lib=libRecipeOf(t);
   if(lib&&lib.optimized&&lib.optimized.hash===h) return lib.optimized;
   return null;
 }
+// Cooking notes (step times you corrected) live on the saved recipe when there is one
+function notesHolder(d){ return libRecipeOf(d)||d; }
+function saveDishChange(d){
+  if(libRecipeOf(d)||cook&&cook.kind==='recipe') pushRecipes();
+  if(cook&&cook.kind==='meal') pushPlan(currentPlan);
+}
 
 function openCookMode(kind,a,b){
-  cook={kind:kind, di:kind==='meal'?a:null, mi:kind==='meal'?b:null, rid:kind==='recipe'?a:null, cooks:1, done:{}};
-  var t=cookTarget(); if(!t) { cook=null; return; }
+  cook={kind:kind, di:kind==='meal'?a:null, mi:kind==='meal'?b:null, rid:kind==='recipe'?a:null, cooks:1, done:{}, loading:{}, errors:{}};
+  if(!cookTarget()) { cook=null; return; }
   document.body.classList.add('cooking');
   document.getElementById('cook-mode').style.display='';
   window.scrollTo(0,0);
   try{ history.pushState({cook:true},''); }catch(e){}
   requestCookWakeLock();
   renderCookMode(); renderTimerFloat();
-  if(!cookOptimized(t)&&isOnline()) optimizeCookTarget();
+  if(isOnline()) optimizeCookDishes();
 }
 function closeCookMode(fromPopState){
   if(!cook) return;
@@ -2946,34 +3102,56 @@ async function requestCookWakeLock(){
 }
 document.addEventListener('visibilitychange',function(){ if(cook&&document.visibilityState==='visible') requestCookWakeLock(); });
 
-async function optimizeCookTarget(){
-  var t=cookTarget(); if(!t||cook.loading) return;
+// Optimize every dish that has no saved optimization (in parallel)
+function optimizeCookDishes(){
+  cookDishes().forEach(function(d,k){ if(!cookOptimized(d)&&(d.steps||[]).length) optimizeDish(k); });
+}
+async function optimizeDish(k){
+  var d=cookDishes()[k]; if(!d||cook.loading[k]) return;
   if(!isOnline()){ showToast("You're offline — optimizing directions needs an internet connection."); return; }
-  cook.loading=true; cook.error=null; renderCookMode();
   var target=cook;
+  target.loading[k]=true; delete target.errors[k]; renderCookMode();
   try{
     var resp=await fetch(WORKER_URL+'/optimize-steps',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name:t.name, ingredients:effectiveIngs(t), steps:t.steps||[]})});
+      body:JSON.stringify({name:d.name, ingredients:effectiveIngs(d), steps:d.steps||[], notes:notesHolder(d).cookingNotes||[]})});
     var data=await resp.json();
     if(data.error) throw new Error(data.error.message||data.error);
-    var opt={hash:cookHash(t), steps:data.steps, changes:data.changes||[]};
-    t.optimized=opt;
-    if(cook&&cook.kind==='meal'){
-      pushPlan(currentPlan);
-      var lib=t.libraryId&&savedRecipes.find(function(r){ return r.id===t.libraryId; });
-      if(lib){ lib.optimized=opt; pushRecipes(); }
-    } else pushRecipes();
-  }catch(e){ target.error=e.message; }
-  target.loading=false;
+    var opt={hash:cookHash(d), steps:data.steps, changes:data.changes||[]};
+    d.optimized=opt;
+    var lib=libRecipeOf(d); if(lib) lib.optimized=opt;
+    saveDishChange(d);
+  }catch(e){ target.errors[k]=e.message; }
+  delete target.loading[k];
   if(cook===target) renderCookMode();
 }
 
+// All optimized dishes' steps as one list; ids become "<dish>:<step>"
+function combinedSteps(){
+  var all=[];
+  cookDishes().forEach(function(d,k){
+    var opt=cookOptimized(d); if(!opt) return;
+    opt.steps.forEach(function(s){
+      all.push(Object.assign({},s,{id:k+':'+s.id, after:(s.after||[]).map(function(a){ return k+':'+a; }), dish:k, src:s}));
+    });
+  });
+  return all;
+}
+
 // List scheduling: each step starts when its dependencies are done; hands-on steps
-// also need a free cook. At each point, the ready step that can start soonest goes next.
+// also need a free cook. The ready step that can start soonest goes next; ties go to
+// the step with the longest chain of work after it, so long dishes start first and
+// everything tends to finish together.
 function scheduleSteps(steps, cooks){
-  var byId={}, end={}, free=[], rows=[], pending=steps.slice();
+  var byId={}, next={}, tailMemo={}, end={}, free=[], rows=[], pending=steps.slice();
   for(var c=0;c<cooks;c++) free.push(0);
-  steps.forEach(function(s){ byId[s.id]=s; });
+  steps.forEach(function(s){ byId[s.id]=s; next[s.id]=[]; });
+  steps.forEach(function(s){ (s.after||[]).forEach(function(a){ if(next[a]) next[a].push(s.id); }); });
+  function tail(id,seen){
+    if(tailMemo[id]!=null) return tailMemo[id];
+    seen=seen||{}; if(seen[id]) return 0; seen[id]=true;  // tolerate dependency loops
+    var t=(Number(byId[id].mins)||0)+Math.max.apply(null,[0].concat(next[id].map(function(n){ return tail(n,seen); })));
+    return (tailMemo[id]=t);
+  }
   while(pending.length){
     var best=null;
     pending.forEach(function(s,i){
@@ -2982,16 +3160,33 @@ function scheduleSteps(steps, cooks){
       var ready=Math.max.apply(null,[0].concat(deps.map(function(a){ return end[a]; })));
       var ck=-1, start=ready;
       if(s.handsOn){ ck=0; for(var k=1;k<free.length;k++) if(free[k]<free[ck]) ck=k; start=Math.max(ready,free[ck]); }
-      if(!best||start<best.start) best={i:i,s:s,start:start,cook:ck};
+      if(!best||start<best.start||start===best.start&&tail(s.id)>tail(best.s.id)) best={i:i,s:s,start:start,cook:ck};
     });
     if(!best) best={i:0,s:pending[0],start:Math.max.apply(null,[0].concat(free)),cook:-1};  // dependency loop: run next in order
     pending.splice(best.i,1);
     var mins=Number(best.s.mins)||0;
     if(best.cook>=0) free[best.cook]=best.start+mins;
     end[best.s.id]=best.start+mins;
-    rows.push({step:best.s, num:steps.indexOf(best.s)+1, start:best.start, end:best.start+mins, cook:best.cook});
+    rows.push({step:best.s, start:best.start, end:best.start+mins, cook:best.cook});
   }
-  rows.sort(function(a,b){ return a.start-b.start||a.num-b.num; });
+  // Finish together: push each step as late as it can go without delaying anything
+  // after it or overlapping that cook's other hands-on work, so a quick side isn't
+  // done (and cold) long before the main. Latest-ending steps are moved first.
+  var total=rows.reduce(function(m,r){ return Math.max(m,r.end); },0), rowOf={};
+  rows.forEach(function(r){ rowOf[r.step.id]=r; });
+  rows.slice().sort(function(a,b){ return b.end-a.end; }).forEach(function(r){
+    var mins=r.end-r.start;
+    var latestEnd=Math.min.apply(null,[total].concat(next[r.step.id].map(function(n){ return rowOf[n].start; })));
+    var cand=latestEnd-mins;
+    if(r.cook>=0){
+      // Step back past any of this cook's hands-on intervals that would overlap
+      var others=rows.filter(function(o){ return o!==r&&o.cook===r.cook; }).sort(function(a,b){ return b.start-a.start; });
+      others.forEach(function(o){ if(cand<o.end&&cand+mins>o.start) cand=o.start-mins; });
+    }
+    if(cand>r.start){ r.start=cand; r.end=cand+mins; }
+  });
+  rows.sort(function(a,b){ return a.start-b.start||steps.indexOf(a.step)-steps.indexOf(b.step); });
+  rows.forEach(function(r,i){ r.num=i+1; });  // step numbers follow the order you do them
   return {rows:rows, total:rows.reduce(function(m,r){ return Math.max(m,r.end); },0)};
 }
 function fmtMins(m){ m=Math.round(m); return m<60?m+' min':Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' min':''); }
@@ -3004,18 +3199,21 @@ function stepLabel(s){
   var words=String(s.text||'').split(/[.;:,(]/)[0].trim().split(/\s+/);
   return words.slice(0,5).join(' ')+(words.length>5?'…':'');
 }
+var DISH_LETTERS='ABCDEFGH';
+function dishTag(k){ return '<i class="ck-dish d'+(k%4)+'">'+DISH_LETTERS[k]+'</i>'; }
 
-function cookGanttHTML(sched, cooks){
+function cookGanttHTML(sched, cooks, multi){
   var total=Math.max(sched.total,1), html='<div class="ck-gantt">';
   sched.rows.forEach(function(r){
     var cls='ck-gbar'+(r.step.handsOn?(r.cook===1?' c1':''):' off')+(cook.done[r.step.id]?' done':'');
     var label=stepLabel(r.step);
-    html+='<div class="ck-grow"><div class="ck-glabel'+(cook.done[r.step.id]?' done':'')+'" title="'+esc(label)+'"><b>'+r.num+'</b>'+esc(label)+'</div><div class="ck-gtrack">'
+    html+='<div class="ck-grow"><div class="ck-glabel'+(cook.done[r.step.id]?' done':'')+'" title="'+esc(label)+'"><b>'+r.num+'</b>'+(multi?dishTag(r.step.dish):'')+esc(label)+'</div><div class="ck-gtrack">'
       +'<div class="'+cls+'" style="left:'+(r.start/total*100)+'%;width:'+((r.end-r.start)/total*100)+'%" title="'+esc(fmtClock(r.start)+' – '+fmtClock(r.end)+': '+r.step.text)+'"></div></div></div>';
   });
   var ticks=[0,total/4,total/2,total*3/4,total].map(function(m){ return '<span>'+fmtClock(m)+'</span>'; }).join('');
   html+='<div class="ck-grow"><div class="ck-glabel"></div><div class="ck-gaxis">'+ticks+'</div></div></div>'
     +'<div class="ck-legend"><span>'+(cooks>1?'Cook A':'Hands-on')+'</span>'+(cooks>1?'<span class="lg-c1">Cook B</span>':'')+'<span class="lg-off">Hands-off (oven, simmering…)</span></div>';
+  if(multi) html+='<div class="ck-dishes">'+cookDishes().map(function(d,k){ return dishTag(k)+esc(d.name); }).join('<span class="ck-sep"></span>')+'</div>';
   return html;
 }
 
@@ -3023,54 +3221,73 @@ function renderCookMode(){
   var el=document.getElementById('cook-mode'), t=cookTarget();
   if(!cook||!el) return;
   if(!t){ closeCookMode(); return; }
-  var opt=cookOptimized(t), srv=cookServingsOf(t);
+  var dishes=cookDishes(), multi=dishes.length>1, srv=cookServings();
+  var steps=combinedSteps(), sched=steps.length?scheduleSteps(steps,cook.cooks):null;
   var html='<div class="ck-head"><div class="ck-head-row">'
     +'<button class="ck-back" onclick="closeCookMode()">&#8592; Back</button>'
-    +'<div class="ck-title">'+esc(t.name)+'</div></div><div class="ck-sub"><span>'+srv+' serving'+(srv===1?'':'s')+'</span>';
-  var sched=null;
-  if(opt){
-    sched=scheduleSteps(opt.steps,cook.cooks);
-    var one=cook.cooks===1?sched:scheduleSteps(opt.steps,1), two=cook.cooks===2?sched:scheduleSteps(opt.steps,2);
+    +'<div class="ck-title">'+esc(cook.kind==='meal'?mealDisplayName(t):t.name)+'</div></div><div class="ck-sub"><span>'+srv+' serving'+(srv===1?'':'s')+'</span>';
+  if(sched){
+    var one=cook.cooks===1?sched:scheduleSteps(steps,1), two=cook.cooks===2?sched:scheduleSteps(steps,2);
     html+='<span>Ready in ~'+fmtMins(sched.total)+(two.total<one.total-1&&cook.cooks===1?' (~'+fmtMins(two.total)+' with 2 cooks)':'')+'</span>'
       +'<span class="ck-seg"><button class="'+(cook.cooks===1?'on':'')+'" onclick="setCooks(1)">1 cook</button><button class="'+(cook.cooks===2?'on':'')+'" onclick="setCooks(2)">2 cooks</button></span>';
   }
   if(Object.keys(cookTimers).length) html+='<div class="ck-chips">'+timerChipsHTML()+'</div>';
   html+='</div></div>';
 
-  // Ingredients, scaled to this meal's servings
-  var ings=scaleIngs(effectiveIngs(t),srv);
-  if(ings.length) html+='<div class="ck-section">Ingredients</div><div class="ck-card"><ul class="ck-ings">'+ings.map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul></div>';
+  // Ingredients, scaled to this meal's servings, grouped by dish
+  dishes.forEach(function(d,k){
+    var ings=scaleIngs(effectiveIngs(d),srv); if(!ings.length) return;
+    html+='<div class="ck-section">'+(multi?dishTag(k)+esc(d.name):'Ingredients')+'</div><div class="ck-card"><ul class="ck-ings">'+ings.map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul></div>';
+  });
 
-  if(cook.loading) html+='<div class="ck-section">Directions</div><div class="ck-card ck-status"><div class="spinner" style="border-color:var(--sage-mid);border-top-color:var(--sage)"></div>Optimizing the directions… (original steps below)</div>';
-  else if(cook.error) html+='<div class="ck-section">Directions</div><div class="ck-card ck-status">Couldn’t optimize: '+esc(cook.error)+' <button class="ck-link" onclick="optimizeCookTarget()">Try again</button></div>';
-  else if(!opt) html+='<div class="ck-section">Directions</div><div class="ck-card ck-status">'+(isOnline()?'<button class="ck-link" onclick="optimizeCookTarget()">Optimize these directions</button>':'Optimized directions need an internet connection the first time. Showing the original steps.')+'</div>';
+  // Per-dish optimization status
+  var missing=[];
+  dishes.forEach(function(d,k){
+    if(cookOptimized(d)||!(d.steps||[]).length) return;
+    missing.push(k);
+    var name=multi?esc(d.name)+': ':'';
+    if(cook.loading[k]) html+='<div class="ck-card ck-status" style="margin-top:8px"><div class="spinner" style="border-color:var(--sage-mid);border-top-color:var(--sage)"></div>'+name+'optimizing the directions… (original steps below)</div>';
+    else if(cook.errors[k]) html+='<div class="ck-card ck-status" style="margin-top:8px">'+name+'couldn’t optimize: '+esc(cook.errors[k])+' <button class="ck-link" onclick="optimizeDish('+k+')">Try again</button></div>';
+    else html+='<div class="ck-card ck-status" style="margin-top:8px">'+name+(isOnline()?'<button class="ck-link" onclick="optimizeDish('+k+')">Optimize these directions</button>':'optimized directions need an internet connection the first time. Showing the original steps.')+'</div>';
+  });
 
-  if(opt&&!cook.showOriginal){
-    if(opt.changes&&opt.changes.length) html+='<div class="ck-section">What changed</div><div class="ck-card"><ul class="ck-changes">'+opt.changes.map(function(c){ return '<li>'+esc(c)+'</li>'; }).join('')+'</ul></div>';
-    html+='<div class="ck-section">Timeline</div><div class="ck-card">'+cookGanttHTML(sched,cook.cooks)+'</div>';
+  if(sched&&!cook.showOriginal){
+    var changes=[];
+    dishes.forEach(function(d,k){ var o=cookOptimized(d); if(o) (o.changes||[]).forEach(function(c){ changes.push((multi?dishTag(k):'')+esc(c)); }); });
+    if(changes.length) html+='<div class="ck-section">What changed</div><div class="ck-card"><ul class="ck-changes">'+changes.map(function(c){ return '<li>'+c+'</li>'; }).join('')+'</ul></div>';
+    html+='<div class="ck-section">Timeline</div><div class="ck-card">'+cookGanttHTML(sched,cook.cooks,multi)+'</div>';
     html+='<div class="ck-section">Steps <button class="ck-link" style="float:right;text-transform:none;letter-spacing:0" onclick="cook.showOriginal=true;renderCookMode()">Original directions</button></div>';
-    var nowId=null;
-    sched.rows.forEach(function(r){ if(!nowId&&!cook.done[r.step.id]) nowId=r.step.id; });
+    var numOf={}, nowId=null;
+    sched.rows.forEach(function(r){ numOf[r.step.id]=r.num; if(!nowId&&!cook.done[r.step.id]) nowId=r.step.id; });
     sched.rows.forEach(function(r){
-      var s=r.step, done=!!cook.done[s.id];
-      var waits=(s.after||[]).map(function(a){ var i=opt.steps.findIndex(function(x){ return x.id===a; }); return i>=0?i+1:null; }).filter(Boolean);
+      var s=r.step, done=!!cook.done[s.id], d=dishes[s.dish];
+      var waits=(s.after||[]).map(function(a){ return numOf[a]; }).filter(Boolean).sort(function(a,b){ return a-b; });
       html+='<div class="ck-step'+(done?' done':'')+(s.id===nowId?' now':'')+'" onclick="toggleCookStep(\''+esc(s.id)+'\')">'
         +'<div class="ck-check">'+(done?'&#10003;':'')+'</div><div style="flex:1">'
-        +'<div class="ck-meta"><strong>Step '+r.num+'</strong><span>at '+fmtClock(r.start)+' &middot; '+fmtMins(s.mins)+'</span>'
+        +'<div class="ck-meta"><strong>Step '+r.num+'</strong>'+(multi?dishTag(s.dish):'')+'<span>at '+fmtClock(r.start)+' &middot; </span>'
+        +'<button class="ck-mins" onclick="event.stopPropagation();adjustStepMins(\''+esc(s.id)+'\')" title="Took longer or shorter? Tap to correct">'+fmtMins(s.mins)+' &#9998;</button>'
         +(s.kind==='prep'?'<span class="ck-tag">prep</span>':'')
         +(!s.handsOn?'<span class="ck-tag off">hands-off</span>':'')
         +(cook.cooks>1&&r.cook>=0?'<span class="ck-tag">Cook '+(r.cook?'B':'A')+'</span>':'')
         +(waits.length?'<span>after step '+waits.join(', ')+'</span>':'')
-        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepTimerHTML(t,s)+'</div></div>';
-    });
-  } else {
-    html+='<div class="ck-section">'+(opt?'Original directions <button class="ck-link" style="float:right;text-transform:none;letter-spacing:0" onclick="cook.showOriginal=false;renderCookMode()">Optimized steps</button>':'Steps')+'</div>';
-    (t.steps||[]).forEach(function(s,i){
-      var id='o'+i, done=!!cook.done[id];
-      html+='<div class="ck-step'+(done?' done':'')+'" onclick="toggleCookStep(\''+id+'\')"><div class="ck-check">'+(done?'&#10003;':'')+'</div>'
-        +'<div style="flex:1"><div class="ck-meta"><strong>Step '+(i+1)+'</strong></div><div class="ck-text">'+esc(s)+'</div></div></div>';
+        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepTimerHTML(d,s.src,s.id)+'</div></div>';
     });
   }
+  // Original directions: all dishes (toggle), or just the ones not optimized yet
+  var originals=(!sched||cook.showOriginal)?dishes.map(function(_,k){ return k; }):missing;
+  if(originals.length){
+    html+='<div class="ck-section">'+(sched&&cook.showOriginal?'Original directions <button class="ck-link" style="float:right;text-transform:none;letter-spacing:0" onclick="cook.showOriginal=false;renderCookMode()">Optimized steps</button>':'Steps')+'</div>';
+    originals.forEach(function(k){
+      var d=dishes[k];
+      if(multi) html+='<div class="ck-dish-head">'+dishTag(k)+esc(d.name)+'</div>';
+      (d.steps||[]).forEach(function(s,i){
+        var id='o'+k+'-'+i, done=!!cook.done[id];
+        html+='<div class="ck-step'+(done?' done':'')+'" onclick="toggleCookStep(\''+id+'\')"><div class="ck-check">'+(done?'&#10003;':'')+'</div>'
+          +'<div style="flex:1"><div class="ck-meta"><strong>Step '+(i+1)+'</strong></div><div class="ck-text">'+esc(s)+'</div></div></div>';
+      });
+    });
+  }
+  html+=cookFeedbackHTML(dishes);
   el.innerHTML=html;
 }
 // ── Countdown timers for hands-off steps ──────────────────────────────────────
@@ -3084,9 +3301,10 @@ function saveTimers(){ try{ localStorage.setItem('nourish_timers',JSON.stringify
 function timerKey(t,s){ return hashStr(t.name||'')+':'+s.id; }
 function fmtCountdown(ms){ var s=Math.max(0,Math.ceil(ms/1000)); return Math.floor(s/60)+':'+('0'+(s%60)).slice(-2); }
 
-function startStepTimer(stepId){
-  var t=cookTarget(), opt=t&&cookOptimized(t); if(!opt) return;
-  var s=opt.steps.find(function(x){ return x.id===stepId; }); if(!s) return;
+// cid: combined step id "<dish index>:<step id>"
+function startStepTimer(cid){
+  var parts=String(cid).split(':'), t=cookDishes()[+parts[0]], opt=t&&cookOptimized(t); if(!opt) return;
+  var s=opt.steps.find(function(x){ return x.id===parts.slice(1).join(':'); }); if(!s) return;
   unlockAlarmAudio();  // needs this tap to be allowed to play later
   var key=timerKey(t,s);
   cookTimers[key]={key:key, label:stepLabel(s), recipe:t.name, endAt:Date.now()+Math.max(1,Number(s.mins)||1)*60000};
@@ -3125,12 +3343,12 @@ function ringAlarm(){
   }catch(e){}
 }
 // Controls for one step (running countdown, ringing, or a start button)
-function stepTimerHTML(t,s){
+function stepTimerHTML(t,s,cid){
   if(s.handsOn||!(Number(s.mins)>0)) return '';
   var key=timerKey(t,s), tm=cookTimers[key], stop='event.stopPropagation();';
   if(tm&&tm.ringing) return '<div class="ck-timer ringing"><span>⏰ '+esc(tm.label)+' is done</span><button onclick="'+stop+'clearTimer(\''+key+'\')">Stop</button><button onclick="'+stop+'addTimerMinute(\''+key+'\')">+1 min</button></div>';
   if(tm) return '<div class="ck-timer running"><span>⏱ <b data-timer="'+key+'">'+fmtCountdown(tm.endAt-Date.now())+'</b></span><button onclick="'+stop+'addTimerMinute(\''+key+'\')">+1 min</button><button onclick="'+stop+'clearTimer(\''+key+'\')">&#10005;</button></div>';
-  return '<div class="ck-timer"><button class="ck-timer-start" onclick="'+stop+'startStepTimer(\''+esc(s.id)+'\')">&#9654; '+fmtCountdown(s.mins*60000)+' timer</button></div>';
+  return '<div class="ck-timer"><button class="ck-timer-start" onclick="'+stop+'startStepTimer(\''+esc(cid)+'\')">&#9654;'+fmtCountdown(s.mins*60000)+' timer</button></div>';
 }
 // Running timers as compact chips (cooking-mode header and the floating strip)
 function timerChipsHTML(){
@@ -3158,6 +3376,140 @@ function renderTimerFloat(){
   var any=Object.keys(cookTimers).length&&!cook;
   el.style.display=any?'':'none';
   if(any) el.innerHTML=timerChipsHTML();
+}
+
+// ── Cooking feedback and recipe revisions ─────────────────────────────────────
+// Two kinds of feedback improve a recipe over time:
+// - Step times: tap a step's minutes in cooking mode to correct it. The timeline and
+//   timers use it right away, and a note ("Bake salmon" took 20 min, not 15) is kept
+//   on the recipe so re-optimizing and revising respect it.
+// - "How did it go?": free text; Claude proposes a revised recipe with a list of
+//   changes to Apply or Discard. Applying updates the saved recipe and every meal
+//   in the plan that uses it, and keeps a revision history on the recipe.
+function adjustStepMins(cid){
+  var parts=String(cid).split(':'), d=cookDishes()[+parts[0]], opt=d&&cookOptimized(d); if(!opt) return;
+  var s=opt.steps.find(function(x){ return x.id===parts.slice(1).join(':'); }); if(!s) return;
+  var v=prompt('How many minutes did "'+stepLabel(s)+'" actually take?', String(Math.round(s.mins)));
+  if(v===null) return;
+  var mins=Math.round(parseFloat(v));
+  if(!(mins>=0&&mins<=600)){ showToast('Enter a number of minutes'); return; }
+  if(mins===Math.round(s.mins)) return;
+  var holder=notesHolder(d);
+  holder.cookingNotes=(holder.cookingNotes||[]).filter(function(n){ return n.indexOf('"'+stepLabel(s)+'" took')!==0; })
+    .concat(['"'+stepLabel(s)+'" took '+mins+' min, not '+Math.round(s.mins)]);
+  s.mins=mins;
+  saveDishChange(d); pushRecipes();
+  renderCookMode();
+  showToast('Saved — '+stepLabel(s)+' now '+fmtMins(mins));
+}
+
+// Pending revision proposals, keyed by where they were asked for
+var revisions={};  // key -> {feedback, loading, error, rev}
+var fbDrafts={};   // key -> feedback being typed (survives re-renders)
+function revisionKey(d){ return d.libraryId?'lib:'+d.libraryId:(d.id?'lib:'+d.id:'dish:'+hashStr(d.name||'')); }
+
+async function requestRevision(d, feedback){
+  var key=revisionKey(d), holder=notesHolder(d);
+  if(!isOnline()){ showToast("You're offline — revising needs an internet connection."); return; }
+  if(!feedback&&!(holder.cookingNotes||[]).length){ showToast('Say what to change first'); return; }
+  revisions[key]={feedback:feedback, loading:true};
+  refreshRevisionViews();
+  try{
+    var resp=await fetch(WORKER_URL+'/revise-recipe',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({recipe:{name:d.name,ingredients:d.ingredients||[],steps:d.steps||[],prepMins:d.prepMins,
+        calories:d.calories,protein:d.protein,carbs:d.carbs,fat:d.fat,notes:d.notes||''},feedback:feedback,notes:holder.cookingNotes||[]})});
+    var data=await resp.json();
+    if(data.error) throw new Error(data.error.message||data.error);
+    revisions[key]={feedback:feedback, rev:data}; delete fbDrafts[key];
+  }catch(e){ revisions[key]={feedback:feedback, error:e.message}; }
+  refreshRevisionViews();
+}
+function refreshRevisionViews(){
+  if(cook) renderCookMode();
+  // Re-render the Recipes tab without collapsing the cards that were open
+  var open=Array.prototype.map.call(document.querySelectorAll('.recipe-card.open'),function(e){ return e.id; });
+  renderRecipesTab();
+  open.forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.add('open'); });
+}
+
+// Apply a revision to the saved recipe (if any), the dish, and every plan meal/side using it
+function applyRevision(key){
+  var pend=revisions[key]; if(!pend||!pend.rev) return;
+  var r=pend.rev.recipe, entry={at:Date.now(), feedback:pend.feedback||'', changes:pend.rev.changes||[]};
+  var fields={name:r.name,prepMins:r.prepMins,calories:r.calories,protein:r.protein,carbs:r.carbs,fat:r.fat,
+    ingredients:r.ingredients,steps:r.steps,notes:r.notes};
+  function update(obj){
+    Object.assign(obj,fields,{ingredients:r.ingredients.slice(),steps:r.steps.slice()});
+    delete obj._baseIngs; delete obj.optimized;  // re-optimized next time it's cooked
+  }
+  var libId=key.indexOf('lib:')===0?key.slice(4):null;
+  var lib=libId&&savedRecipes.find(function(x){ return x.id===libId; });
+  if(lib){
+    update(lib);
+    lib.revisions=(lib.revisions||[]).concat([entry]).slice(-20);
+    lib.cookingNotes=[];  // folded into the revised recipe
+    pushRecipes();
+  }
+  // Plan meals and sides: those from this saved recipe, or (no saved recipe) the dish being cooked
+  var planChanged=false, cookingDish=!lib&&cook?cookDishes().find(function(d){ return revisionKey(d)===key; }):null;
+  if(currentPlan&&currentPlan.days) currentPlan.days.forEach(function(day){
+    day.meals.forEach(function(m){
+      mealDishes(m).forEach(function(d){
+        if((lib&&d.libraryId===lib.id)||d===cookingDish){
+          update(d);
+          if(!lib){ d.revisions=(d.revisions||[]).concat([entry]).slice(-20); d.cookingNotes=[]; }
+          planChanged=true;
+        }
+      });
+    });
+  });
+  delete revisions[key];
+  if(planChanged){ recomputeGroceryLocal(); renderPlan(currentPlan); pushPlan(currentPlan); scheduleGroceryRefresh(); }
+  refreshRevisionViews();
+  if(cook&&isOnline()) optimizeCookDishes();
+  showToast('Recipe updated');
+}
+function discardRevision(key){ delete revisions[key]; refreshRevisionViews(); }
+
+// Feedback box + proposal for one dish; `where` is 'cook' or 'recipe' (ids must be unique)
+function feedbackBoxHTML(d, where){
+  var key=revisionKey(d), pend=revisions[key], holder=notesHolder(d), id='fb-'+where+'-'+hashStr(key);
+  var html='<div class="fb-box">';
+  if(pend&&pend.loading) return html+'<div class="ck-status"><div class="spinner" style="border-color:var(--sage-mid);border-top-color:var(--sage)"></div>Revising '+esc(d.name)+'…</div></div>';
+  if(pend&&pend.rev){
+    html+='<div class="fb-title">Suggested changes to '+esc(d.name)+'</div>'
+      +((pend.rev.changes||[]).length?'<ul class="ck-changes">'+pend.rev.changes.map(function(c){ return '<li>'+esc(c)+'</li>'; }).join('')+'</ul>':'<div class="fb-note">No changes needed.</div>')
+      +'<details class="fb-preview"><summary>Preview revised recipe</summary><ul>'+pend.rev.recipe.ingredients.map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul>'
+      +'<ol>'+pend.rev.recipe.steps.map(function(s){ return '<li>'+esc(s)+'</li>'; }).join('')+'</ol></details>'
+      +'<div class="fb-actions"><button class="fb-apply" onclick="applyRevision(\''+esc(key)+'\')">Apply</button><button onclick="discardRevision(\''+esc(key)+'\')">Discard</button></div>';
+    return html+'</div>';
+  }
+  var notes=holder.cookingNotes||[];
+  var draft=fbDrafts[key]!=null?fbDrafts[key]:(pend&&pend.feedback||'');
+  html+='<textarea id="'+id+'" class="recipe-add-input tall" oninput="fbDrafts[\''+esc(key)+'\']=this.value" onclick="event.stopPropagation()" placeholder="e.g. The bake needed 20 minutes; use less salt; the slaw was bland">'+esc(draft)+'</textarea>'
+    +(notes.length?'<div class="fb-note">Also includes your step-time corrections: '+esc(notes.join('; '))+'</div>':'')
+    +(pend&&pend.error?'<div class="fb-note" style="color:var(--clay-dark)">Couldn’t revise: '+esc(pend.error)+'</div>':'')
+    +'<div class="fb-actions"><button class="fb-apply" '+(isOnline()?'':'disabled ')+'onclick="requestRevision('+where+'FeedbackDish(\''+esc(key)+'\'),document.getElementById(\''+id+'\').value.trim())">Revise recipe with Claude</button></div>';
+  return html+'</div>';
+}
+function cookFeedbackDish(key){ return cookDishes().find(function(d){ return revisionKey(d)===key; }); }
+function recipeFeedbackDish(key){ return savedRecipes.find(function(r){ return revisionKey(r)===key; }); }
+function cookFeedbackHTML(dishes){
+  var html='<div class="ck-section">How did it go?</div><div class="ck-card">'
+    +'<div class="fb-note" style="margin-bottom:6px">Tell Claude what to change for next time; you’ll see the changes before they’re saved.</div>';
+  dishes.forEach(function(d){
+    if(dishes.length>1) html+='<div class="ck-dish-head">'+esc(d.name)+'</div>';
+    html+=feedbackBoxHTML(d,'cook');
+  });
+  return html+'</div>';
+}
+function revisionHistoryHTML(r){
+  var list=r.revisions||[]; if(!list.length) return '';
+  return '<details class="fb-history"><summary>Revision history ('+list.length+')</summary>'
+    +list.slice().reverse().map(function(e){
+      return '<div class="fb-entry"><div class="fb-date">'+new Date(e.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+        +(e.feedback?' &middot; “'+esc(e.feedback)+'”':'')+'</div><ul>'+(e.changes||[]).map(function(c){ return '<li>'+esc(c)+'</li>'; }).join('')+'</ul></div>';
+    }).join('')+'</details>';
 }
 
 function setCooks(n){ if(cook){ cook.cooks=n; renderCookMode(); } }

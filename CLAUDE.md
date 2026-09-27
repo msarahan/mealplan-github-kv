@@ -52,6 +52,7 @@ All endpoints return JSON with CORS headers (`Access-Control-Allow-Origin: *`).
 | POST | `/generate` | Proxy to Anthropic API (keeps API key server-side) |
 | POST | `/parse-recipe` | Fetch URL server-side + extract recipe JSON via Claude |
 | POST | `/optimize-steps` | Rewrite recipe steps for cooking mode (prep once, timings, dependencies) via Claude |
+| POST | `/revise-recipe` | Revise a recipe from cooking feedback (returns revised recipe + list of changes) via Claude |
 
 ## KV key schema
 ```
@@ -124,6 +125,8 @@ Household servings arrays are indexed Mon=0 through Sun=6.
   "customItems": []
 }
 ```
+
+A meal may also have `"sides": [...]` — side dishes with the same recipe fields as a meal (optionally `libraryId`), sharing the meal's servings; meal nutrition totals include them.
 
 ### Recipe object
 ```json

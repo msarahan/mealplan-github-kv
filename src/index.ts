@@ -200,7 +200,7 @@ RULES
   after: ids of steps that must finish before this one can start. List only real
   dependencies, so independent work (chopping while water boils) can overlap.
 - changes: 1-4 short notes on what you changed, e.g. "Minced all the garlic at once
-  (was in steps 2 and 5)". Empty if nothing needed changing.`,
+  (was in steps 2 and 5)". Empty if nothing needed changing.${cookingNotesText(recipe.notes)}`,
     OPTIMIZE_SCHEMA, 'medium');
 
   // Make ids unique and deps valid (existing, non-self ids; the app's scheduler
@@ -214,6 +214,60 @@ RULES
   const ids = new Set(steps.map(s => s.id));
   steps.forEach(s => { s.after = [...new Set((s.after || []).filter(a => ids.has(a) && a !== s.id))]; });
   return { steps, changes: out.changes || [] };
+}
+
+// Notes the household recorded while cooking (e.g. "Bake salmon took 20 min, not 15")
+function cookingNotesText(notes) {
+  const list = (Array.isArray(notes) ? notes : []).map(String).filter(Boolean).slice(-20);
+  return list.length ? '\n\nNOTES FROM COOKING THIS BEFORE (trust these over your own estimates):\n'
+    + list.map(n => '- ' + n).join('\n') : '';
+}
+
+// ── Recipe revision from cooking feedback ────────────────────────────────────
+const REVISE_SCHEMA = {
+  type: 'object',
+  properties: {
+    recipe: {
+      type: 'object',
+      properties: {
+        name: str, prepMins: { type: 'integer' },
+        calories: { type: 'number' }, protein: { type: 'number' },
+        carbs: { type: 'number' }, fat: { type: 'number' },
+        ingredients: strList, steps: strList, notes: str,
+      },
+      required: ['name', 'prepMins', 'calories', 'protein', 'carbs', 'fat', 'ingredients', 'steps', 'notes'],
+      additionalProperties: false,
+    },
+    changes: strList,
+  },
+  required: ['recipe', 'changes'],
+  additionalProperties: false,
+};
+
+// recipe: {name, ingredients (per serving), steps, prepMins, calories, protein, carbs, fat, notes}
+async function reviseRecipe(env, recipe, feedback, notes) {
+  return callStructured(env,
+    `Revise this household recipe based on how cooking it went.
+
+RECIPE: ${recipe.name}
+Total time: ${recipe.prepMins || '?'} min. Per serving: ${recipe.calories || '?'} kcal, ${recipe.protein || '?'}g protein, ${recipe.carbs || '?'}g carbs, ${recipe.fat || '?'}g fat.
+INGREDIENTS (per 1 serving):
+${(recipe.ingredients || []).map(i => '- ' + i).join('\n')}
+DIRECTIONS:
+${(recipe.steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n')}
+NOTES: ${recipe.notes || '(none)'}
+
+FEEDBACK: ${feedback || '(none; apply the cooking notes below)'}${cookingNotesText(notes)}
+
+RULES
+- Change only what the feedback calls for; keep everything else as written.
+- Update times, temperatures and doneness cues in the directions when the feedback says
+  something took longer or shorter; update prepMins to match.
+- Ingredients stay per 1 serving, US units, ASCII fractions ("1/2 cup rice").
+- Recalculate nutrition only if ingredients change.
+- Keep notes; append a short line about this revision if it's useful for next time.
+- changes: 1-5 short notes on what you changed, in plain words. Empty if nothing needed changing.`,
+    REVISE_SCHEMA, 'medium');
 }
 
 // ── Mealime import ────────────────────────────────────────────────────────────
@@ -407,9 +461,26 @@ ${sourceText}`;
           name: String(body.name || 'Recipe'),
           ingredients: Array.isArray(body.ingredients) ? body.ingredients.map(String) : [],
           steps,
+          notes: body.notes,
         }));
       } catch (e) {
         return err('Could not optimize steps: ' + e.message);
+      }
+    }
+
+    // ── POST /revise-recipe ──────────────────────────────────────────────────────
+    // Body: { recipe: {name, ingredients, steps, prepMins, calories, protein, carbs, fat, notes},
+    //         feedback: string, notes?: string[] } → { recipe: {...}, changes: string[] }
+    if (request.method === 'POST' && path === '/revise-recipe') {
+      const body = await request.json().catch(() => ({}));
+      const recipe = body.recipe || {};
+      const feedback = String(body.feedback || '').trim().slice(0, 2000);
+      if (!Array.isArray(recipe.steps) || !recipe.steps.length) return err('No recipe steps provided');
+      if (!feedback && !(Array.isArray(body.notes) && body.notes.length)) return err('No feedback provided');
+      try {
+        return json(await reviseRecipe(env, recipe, feedback, body.notes));
+      } catch (e) {
+        return err('Could not revise recipe: ' + e.message);
       }
     }
 
