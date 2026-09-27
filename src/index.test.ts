@@ -1,7 +1,7 @@
 import { env, SELF } from 'cloudflare:test';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { extractMealime, normalizeRecipeUrl } from './index';
-import { MODEL, CLASSIFY_BATCH } from './config';
+import { MODEL, CLASSIFY_BATCH, MAX_OPTIMIZE_STEPS } from './config';
 
 const BASE = 'http://example.com';
 
@@ -289,6 +289,43 @@ describe('Anthropic calls', () => {
     expect((await classify([])).status).toBe(400);
     const many = Array.from({ length: CLASSIFY_BATCH + 1 }, (_, i) => ({ id: 'r-' + i, name: 'x', ingredients: [] }));
     expect((await classify(many)).status).toBe(400);
+    expect(calls.length).toBe(0);
+  });
+
+  const optimize = (body: unknown) => SELF.fetch(`${BASE}/optimize-steps`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  it('/optimize-steps sends the recipe with a step schema and cleans up ids and deps', async () => {
+    const calls = mockAnthropic({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({
+        steps: [
+          { id: 's1', kind: 'prep', text: 'Mince all the garlic; set aside half.', mins: 3, handsOn: true, after: [] },
+          { id: 's1', kind: 'cook', text: 'Bake.', mins: 999, handsOn: false, after: ['s1', 's9', 's1'] },
+        ],
+        changes: ['Minced garlic once'],
+      }) }],
+    });
+    const res = await optimize({ name: 'Salmon', ingredients: ['2 cloves garlic'], steps: ['Mince garlic.', 'Mince more garlic.'] });
+    const out = await res.json() as any;
+    expect(out.changes).toEqual(['Minced garlic once']);
+    expect(out.steps[1].id).not.toBe('s1');           // duplicate id renamed
+    expect(out.steps[1].mins).toBe(600);              // clamped
+    expect(out.steps[1].after).toEqual(['s1']);       // unknown id dropped, deduped
+    const req = calls[0].body;
+    expect(req.output_config.effort).toBe('medium');
+    expect(req.output_config.format.schema.properties.steps.items.required).toContain('handsOn');
+    expect(req.output_config.format.schema.properties.steps.items.required).toContain('label');
+    expect(req.messages[0].content).toContain('2. Mince more garlic.');
+  });
+
+  it('/optimize-steps rejects missing or oversized step lists without calling Claude', async () => {
+    const calls = mockAnthropic({ stop_reason: 'end_turn', content: [] });
+    expect((await optimize({ name: 'x', steps: [] })).status).toBe(400);
+    expect((await optimize({ name: 'x', steps: Array(MAX_OPTIMIZE_STEPS + 1).fill('Stir.') })).status).toBe(400);
     expect(calls.length).toBe(0);
   });
 

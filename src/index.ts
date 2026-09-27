@@ -16,7 +16,7 @@ function json(data, status) {
 }
 function err(msg, status) { return json({ error: msg }, status || 400); }
 
-import { MODEL, CLASSIFY_BATCH } from './config';
+import { MODEL, CLASSIFY_BATCH, MAX_OPTIMIZE_STEPS } from './config';
 
 async function callAnthropic(env, payload) {
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -88,10 +88,10 @@ Tags are short descriptors like: quick, vegetarian, vegan, make-ahead, high-prot
 ${DIET_RULES}`;
 
 // One Claude call whose reply is guaranteed to match `schema`. Returns the parsed object.
-async function callStructured(env, content, schema) {
+async function callStructured(env, content, schema, effort = 'low') {
   const resp = await callAnthropic(env, {
     max_tokens: 16000,  // caps thinking + answer together
-    output_config: { effort: 'low', format: { type: 'json_schema', schema } },
+    output_config: { effort, format: { type: 'json_schema', schema } },
     messages: [{ role: 'user', content }],
   });
   const data = await resp.json();
@@ -137,6 +137,83 @@ RECIPES:
 ${list}`, CLASSIFY_SCHEMA);
   const ids = new Set(recipes.map(r => r.id));
   return results.filter(r => ids.has(r.id));
+}
+
+// ── Recipe direction optimization (cooking mode) ─────────────────────────────
+// Claude rewrites a recipe's steps so repeated prep happens once, and tags each
+// step with minutes, hands-on vs hands-off, and the steps it must wait for. The
+// app builds the timeline (and 1- vs 2-cook schedules) from those.
+const OPTIMIZE_SCHEMA = {
+  type: 'object',
+  properties: {
+    steps: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: str,
+          kind: { type: 'string', enum: ['prep', 'cook'] },
+          label: str,
+          text: str,
+          mins: { type: 'number' },
+          handsOn: { type: 'boolean' },
+          after: strList,
+        },
+        required: ['id', 'kind', 'label', 'text', 'mins', 'handsOn', 'after'],
+        additionalProperties: false,
+      },
+    },
+    changes: strList,
+  },
+  required: ['steps', 'changes'],
+  additionalProperties: false,
+};
+
+// recipe: {name, ingredients, steps}. Returns {steps, changes} with ids/deps cleaned up.
+async function optimizeSteps(env, recipe) {
+  const out = await callStructured(env,
+    `Rewrite these recipe directions so they are efficient for a home cook.
+
+RECIPE: ${recipe.name}
+INGREDIENTS:
+${recipe.ingredients.map(i => '- ' + i).join('\n')}
+DIRECTIONS:
+${recipe.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+
+RULES
+- Do each kind of prep once: if an ingredient is chopped/minced/grated/zested/juiced in more
+  than one step, do all of it in one early "prep" step and say how to divide it, using
+  fractions or "the rest" (e.g. "Mince all the garlic; set aside about half for the sauce").
+  Never write ingredient amounts; the app shows scaled amounts separately.
+- Group related prep (e.g. chop all the vegetables together) when it saves time.
+- Start long hands-off work early: preheat the oven or boil water first; marinate, soak,
+  or chill as soon as possible.
+- Keep every instruction that matters: temperatures, times, doneness cues, pan sizes.
+  Don't add new ingredients or change the dish.
+- steps: ids "s1", "s2", ... in the order a single cook should do them.
+  kind "prep" for mise en place, "cook" for the rest.
+  label: 2-5 word summary for a timeline, starting with a verb, e.g. "Chop vegetables",
+  "Wash and start rice", "Bake salmon". Clear enough to know which step it is.
+  mins: realistic minutes for the step at home pace.
+  handsOn: false when the cook is free during the step (oven, simmering unattended,
+  resting, marinating, preheating, water coming to a boil); true otherwise.
+  after: ids of steps that must finish before this one can start. List only real
+  dependencies, so independent work (chopping while water boils) can overlap.
+- changes: 1-4 short notes on what you changed, e.g. "Minced all the garlic at once
+  (was in steps 2 and 5)". Empty if nothing needed changing.`,
+    OPTIMIZE_SCHEMA, 'medium');
+
+  // Make ids unique and deps valid (existing, non-self ids; the app's scheduler
+  // also tolerates cycles)
+  const seen = new Set();
+  const steps = out.steps.map((s, i) => {
+    const id = s.id && !seen.has(s.id) ? s.id : 's' + (i + 1) + '_' + i;
+    seen.add(id);
+    return { ...s, id, mins: Math.max(0, Math.min(600, Number(s.mins) || 0)) };
+  });
+  const ids = new Set(steps.map(s => s.id));
+  steps.forEach(s => { s.after = [...new Set((s.after || []).filter(a => ids.has(a) && a !== s.id))]; });
+  return { steps, changes: out.changes || [] };
 }
 
 // ── Mealime import ────────────────────────────────────────────────────────────
@@ -315,6 +392,24 @@ ${sourceText}`;
         return json({ results: await classifyDiets(env, recipes) });
       } catch (e) {
         return err('Could not classify recipes: ' + e.message);
+      }
+    }
+
+    // ── POST /optimize-steps ─────────────────────────────────────────────────────
+    // Body: { name, ingredients: string[], steps: string[] } → { steps: [...], changes: string[] }
+    if (request.method === 'POST' && path === '/optimize-steps') {
+      const body = await request.json().catch(() => ({}));
+      const steps = Array.isArray(body.steps) ? body.steps.filter(s => typeof s === 'string' && s.trim()) : [];
+      if (!steps.length) return err('No steps provided');
+      if (steps.length > MAX_OPTIMIZE_STEPS) return err(`At most ${MAX_OPTIMIZE_STEPS} steps`);
+      try {
+        return json(await optimizeSteps(env, {
+          name: String(body.name || 'Recipe'),
+          ingredients: Array.isArray(body.ingredients) ? body.ingredients.map(String) : [],
+          steps,
+        }));
+      } catch (e) {
+        return err('Could not optimize steps: ' + e.message);
       }
     }
 

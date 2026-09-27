@@ -126,6 +126,67 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .opt-hint{font-size:10px;color:var(--ink-light);margin-top:1px}
 .opt-note{font-size:10px;color:var(--ink-light);margin-top:6px;line-height:1.4}
 /* Generate */
+/* Cooking mode */
+body.cooking #app{display:none}
+.cook-mode{padding:0 16px 40px;min-height:100vh}
+.ck-head{position:sticky;top:0;z-index:5;background:var(--sand);padding:12px 0 10px;border-bottom:1px solid var(--sand-dark);margin-bottom:12px}
+.ck-head-row{display:flex;align-items:center;gap:10px}
+.ck-back{padding:6px 12px;border-radius:20px;border:1px solid var(--sand-dark);background:var(--white);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--ink-mid);cursor:pointer}
+.ck-title{font-family:'Lora',serif;font-size:19px;color:var(--ink);line-height:1.25;flex:1}
+.ck-sub{font-size:12px;color:var(--ink-light);margin-top:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ck-seg{display:inline-flex;border:1px solid var(--sand-dark);border-radius:20px;overflow:hidden}
+.ck-seg button{padding:4px 11px;border:none;background:var(--white);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--ink-mid);cursor:pointer}
+.ck-seg button.on{background:var(--sage);color:#fff}
+.ck-section{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sage-dark);margin:16px 0 6px}
+.ck-card{background:var(--white);border:1px solid var(--sand-dark);border-radius:var(--radius-sm);padding:10px 12px}
+.ck-ings{columns:2;column-gap:14px;font-size:13px;color:var(--ink);padding-left:16px}
+.ck-ings li{margin-bottom:3px;break-inside:avoid}
+.ck-changes{font-size:12px;color:var(--sage-dark);padding-left:16px}
+.ck-status{font-size:12px;color:var(--ink-mid);display:flex;align-items:center;gap:8px}
+.ck-gantt{position:relative;font-size:11px}
+.ck-grow{display:flex;align-items:center;gap:6px;height:22px}
+.ck-glabel{width:42%;flex-shrink:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ck-glabel b{color:var(--ink-light);font-weight:500;margin-right:4px}
+.ck-glabel.done{color:var(--ink-light);text-decoration:line-through}
+.ck-gtrack{position:relative;flex:1;height:14px}
+.ck-gbar{position:absolute;top:0;height:14px;border-radius:4px;background:var(--sage);min-width:3px}
+.ck-gbar.c1{background:var(--sage-dark)}
+.ck-gbar.off{background:repeating-linear-gradient(45deg,var(--clay-light),var(--clay-light) 4px,#ecd3c4 4px,#ecd3c4 8px);border:1px solid #e8c4b0}
+.ck-gbar.done{opacity:.35}
+.ck-gaxis{flex:1;display:flex;justify-content:space-between;color:var(--ink-light);font-size:10px}
+.ck-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--ink-mid);margin-top:6px}
+.ck-legend span::before{content:'';display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px;background:var(--sage)}
+.ck-legend .lg-c1::before{background:var(--sage-dark)}
+.ck-legend .lg-off::before{background:var(--clay-light);border:1px solid #e8c4b0}
+.ck-step{display:flex;gap:10px;padding:12px;background:var(--white);border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);margin-bottom:8px;cursor:pointer}
+.ck-step.now{border-color:var(--sage);box-shadow:0 0 0 3px var(--sage-light)}
+.ck-step.done{opacity:.5}
+.ck-step.done .ck-text{text-decoration:line-through}
+.ck-check{width:26px;height:26px;border-radius:50%;border:2px solid var(--sage-mid);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+.ck-step.done .ck-check{background:var(--sage);border-color:var(--sage)}
+.ck-meta{font-size:11px;color:var(--ink-light);margin-bottom:3px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ck-tag{font-size:10px;padding:1px 7px;border-radius:20px;background:var(--sage-light);color:var(--sage-dark);font-weight:500}
+.ck-tag.off{background:var(--clay-light);color:var(--clay-dark)}
+.ck-text{font-size:16px;line-height:1.45;color:var(--ink)}
+.ck-timer{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:14px;color:var(--clay-dark)}
+.ck-timer b{font-variant-numeric:tabular-nums;font-size:18px}
+.ck-timer button{padding:5px 11px;border-radius:20px;border:1px solid #e8c4b0;background:var(--white);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--clay-dark);cursor:pointer}
+.ck-timer .ck-timer-start{background:var(--clay-light);font-size:13px;font-weight:500}
+.ck-timer.ringing{background:var(--clay);color:#fff;border-radius:var(--radius-sm);padding:6px 10px;animation:pulse 1s infinite}
+.ck-timer.ringing button{border-color:#fff}
+.ck-chips{display:flex;gap:6px;flex-wrap:wrap;width:100%}
+.ck-chip{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--clay-light);color:var(--clay-dark);border:1px solid #e8c4b0}
+.ck-chip b{font-variant-numeric:tabular-nums}
+.ck-chip.ringing{background:var(--clay);color:#fff;cursor:pointer;animation:pulse 1s infinite}
+.timer-alert{position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;z-index:300;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.ta-row{display:flex;align-items:center;gap:8px;background:var(--clay);color:#fff;border-radius:var(--radius-sm);padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,.2);animation:pulse 1.2s infinite}
+.ta-text{flex:1;display:flex;flex-direction:column;font-size:15px;line-height:1.3}
+.ta-text span{font-size:12px;opacity:.9}
+.ta-row button{padding:7px 12px;border-radius:20px;border:1px solid #fff;background:transparent;color:#fff;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer}
+.ta-row .ta-stop{background:#fff;color:var(--clay-dark);font-weight:600}
+.timer-float{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:150;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:400px;padding:0 12px}
+.timer-float .ck-chip{box-shadow:0 2px 8px rgba(0,0,0,.12);font-size:13px;padding:6px 12px}
+.ck-link{background:none;border:none;color:var(--sage-dark);font-family:'DM Sans',sans-serif;font-size:12px;text-decoration:underline;cursor:pointer;padding:0}
 .plan-actions{display:flex;gap:8px;margin-bottom:12px}
 .new-plan-btn{flex:1;padding:10px;background:var(--sage);color:#fff;border:none;border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer}
 .new-plan-btn.open{background:var(--sand);color:var(--ink-mid);border:1.5px solid var(--sand-dark)}
@@ -502,6 +563,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 
   <div style="text-align:center;padding:18px 0 10px;font-size:11px;color:var(--ink-light);font-family:'DM Sans',sans-serif" id="app-version-footer"></div>
 </div>
+
+<!-- Cooking mode: full-screen recipe view (the rest of the app is hidden) -->
+<div id="cook-mode" class="cook-mode" style="display:none"></div>
+<div id="timer-float" class="timer-float" style="display:none"></div>
+<div id="timer-alert" class="timer-alert" role="alert" style="display:none"></div>
 
 <div id="toast"></div>
 <div id="src-popover"></div>
@@ -1043,7 +1109,9 @@ function scaleIngs(ings, srv) {
   return ings.map(function(ing){
     var p=parseIng(ing); if(!p.qty) return ing;
     var q=p.qty*srv, unit=p.unit;
-    if (q>1&&/^cup$/i.test(unit)) unit+='s'; else if (q<=1&&/^cups$/i.test(unit)) unit=unit.slice(0,-1);
+    // Countable units read naturally at the scaled amount: "4 cloves", "1 cup"
+    var countable=/^(cup|clove|can|head|slice|piece|stick|bunch|pint|quart|gallon|bag|jar|bottle)s?$/i;
+    if (countable.test(unit)) unit=unit.replace(/s$/i,'')+(q>1?'s':'');
     return (fmtQty(q)||'')+(unit?' '+unit:'')+' '+p.rest;
   });
 }
@@ -1973,6 +2041,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   if(meal.batchNote) html+='<div class="prep-note batch"><span class="pn-icon">&#127859;</span><span class="pn-text">'+esc(meal.batchNote)+'</span></div>';
 
   html+='<div class="meal-action-row">';
+  if(meal.steps&&meal.steps.length) html+='<button class="meal-act-btn sage" onclick="openCookMode(\'meal\','+di+','+mi+')">&#129489;&#8205;&#127859; Cook</button>';
   html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+')">&#x1F504; Swap</button>';
   html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
   html+='<button class="meal-act-btn" onclick="clearMeal('+di+','+mi+')" title="Empty this slot (e.g. eating out)">&#10005; Clear</button>';
@@ -2404,6 +2473,7 @@ function renderRecipesTab(){
       if(recipe.notes) html+='<div class="recipe-notes-view">'+esc(recipe.notes)+'</div>';
       if(recipe.sourceUrl) html+='<div style="margin-top:8px;font-size:11px;color:var(--ink-light)">Source: <a href="'+esc(recipe.sourceUrl)+'" target="_blank" style="color:var(--sage-dark)">'+esc(recipe.sourceUrl.replace(/^https?:\/\//,'').split('/')[0])+'</a></div>';
       var alreadyShared=globalRecipes.some(function(g){return g.id===recipe.id;});
+      if(recipe.steps&&recipe.steps.length) html+='<button class="recipe-share-btn" style="margin-right:6px" onclick="openCookMode(\'recipe\',\''+recipe.id+'\');event.stopPropagation()">&#129489;&#8205;&#127859; Cooking mode</button>';
       if(alreadyShared) html+='<span class="recipe-shared-badge">&#10003; In community</span>';
       else html+='<button class="recipe-share-btn" onclick="shareRecipeToGlobal(\''+recipe.id+'\');event.stopPropagation()">Share to Community</button>';
     }
@@ -2823,7 +2893,280 @@ function pinRecipe(recipeId){
   closePicker(); refreshPlanLocal();
 }
 
+// ── Cooking mode ──────────────────────────────────────────────────────────────
+// Full-screen view of one recipe: scaled ingredients, a timeline, and big
+// checkable steps. Directions are optimized once by Claude (/optimize-steps) and
+// saved on the meal (and its saved recipe) as {hash, steps, changes}; the
+// schedule is computed here, so the 1- vs 2-cook view needs no extra call.
+var cook=null;  // {kind:'meal'|'recipe', di, mi, rid, cooks, done:{}, loading, error, showOriginal}
+var cookWakeLock=null;
+
+function hashStr(s){ var h=5381; for(var i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(36); }
+function cookTarget(){
+  if(!cook) return null;
+  if(cook.kind==='meal') return currentPlan&&currentPlan.days[cook.di]&&currentPlan.days[cook.di].meals[cook.mi];
+  return savedRecipes.find(function(r){ return r.id===cook.rid; });
+}
+// Directions hash: re-optimize when the recipe's steps or ingredients change
+function cookHash(t){ return hashStr(JSON.stringify([effectiveIngs(t),t.steps||[]])); }
+function cookServingsOf(t){ return cook.kind==='meal'?mealCookServings(t,cook.di):(t.servings||1); }
+// Valid saved optimization for the target (a meal can reuse its saved recipe's)
+function cookOptimized(t){
+  var h=cookHash(t);
+  if(t.optimized&&t.optimized.hash===h) return t.optimized;
+  var lib=t.libraryId&&savedRecipes.find(function(r){ return r.id===t.libraryId; });
+  if(lib&&lib.optimized&&lib.optimized.hash===h) return lib.optimized;
+  return null;
+}
+
+function openCookMode(kind,a,b){
+  cook={kind:kind, di:kind==='meal'?a:null, mi:kind==='meal'?b:null, rid:kind==='recipe'?a:null, cooks:1, done:{}};
+  var t=cookTarget(); if(!t) { cook=null; return; }
+  document.body.classList.add('cooking');
+  document.getElementById('cook-mode').style.display='';
+  window.scrollTo(0,0);
+  try{ history.pushState({cook:true},''); }catch(e){}
+  requestCookWakeLock();
+  renderCookMode(); renderTimerFloat();
+  if(!cookOptimized(t)&&isOnline()) optimizeCookTarget();
+}
+function closeCookMode(fromPopState){
+  if(!cook) return;
+  cook=null;
+  document.body.classList.remove('cooking');
+  document.getElementById('cook-mode').style.display='none';
+  renderTimerFloat();
+  if(cookWakeLock){ try{ cookWakeLock.release(); }catch(e){} cookWakeLock=null; }
+  if(!fromPopState&&history.state&&history.state.cook){ try{ history.back(); }catch(e){} }
+}
+window.addEventListener('popstate',function(){ if(cook) closeCookMode(true); });
+// Keep the screen on while cooking (re-acquired when returning to the tab)
+async function requestCookWakeLock(){
+  try{ if(cook&&navigator.wakeLock) cookWakeLock=await navigator.wakeLock.request('screen'); }catch(e){}
+}
+document.addEventListener('visibilitychange',function(){ if(cook&&document.visibilityState==='visible') requestCookWakeLock(); });
+
+async function optimizeCookTarget(){
+  var t=cookTarget(); if(!t||cook.loading) return;
+  if(!isOnline()){ showToast("You're offline — optimizing directions needs an internet connection."); return; }
+  cook.loading=true; cook.error=null; renderCookMode();
+  var target=cook;
+  try{
+    var resp=await fetch(WORKER_URL+'/optimize-steps',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:t.name, ingredients:effectiveIngs(t), steps:t.steps||[]})});
+    var data=await resp.json();
+    if(data.error) throw new Error(data.error.message||data.error);
+    var opt={hash:cookHash(t), steps:data.steps, changes:data.changes||[]};
+    t.optimized=opt;
+    if(cook&&cook.kind==='meal'){
+      pushPlan(currentPlan);
+      var lib=t.libraryId&&savedRecipes.find(function(r){ return r.id===t.libraryId; });
+      if(lib){ lib.optimized=opt; pushRecipes(); }
+    } else pushRecipes();
+  }catch(e){ target.error=e.message; }
+  target.loading=false;
+  if(cook===target) renderCookMode();
+}
+
+// List scheduling: each step starts when its dependencies are done; hands-on steps
+// also need a free cook. At each point, the ready step that can start soonest goes next.
+function scheduleSteps(steps, cooks){
+  var byId={}, end={}, free=[], rows=[], pending=steps.slice();
+  for(var c=0;c<cooks;c++) free.push(0);
+  steps.forEach(function(s){ byId[s.id]=s; });
+  while(pending.length){
+    var best=null;
+    pending.forEach(function(s,i){
+      var deps=(s.after||[]).filter(function(a){ return byId[a]; });
+      if(!deps.every(function(a){ return end[a]!=null; })) return;
+      var ready=Math.max.apply(null,[0].concat(deps.map(function(a){ return end[a]; })));
+      var ck=-1, start=ready;
+      if(s.handsOn){ ck=0; for(var k=1;k<free.length;k++) if(free[k]<free[ck]) ck=k; start=Math.max(ready,free[ck]); }
+      if(!best||start<best.start) best={i:i,s:s,start:start,cook:ck};
+    });
+    if(!best) best={i:0,s:pending[0],start:Math.max.apply(null,[0].concat(free)),cook:-1};  // dependency loop: run next in order
+    pending.splice(best.i,1);
+    var mins=Number(best.s.mins)||0;
+    if(best.cook>=0) free[best.cook]=best.start+mins;
+    end[best.s.id]=best.start+mins;
+    rows.push({step:best.s, num:steps.indexOf(best.s)+1, start:best.start, end:best.start+mins, cook:best.cook});
+  }
+  rows.sort(function(a,b){ return a.start-b.start||a.num-b.num; });
+  return {rows:rows, total:rows.reduce(function(m,r){ return Math.max(m,r.end); },0)};
+}
+function fmtMins(m){ m=Math.round(m); return m<60?m+' min':Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' min':''); }
+function fmtClock(m){ m=Math.round(m); return Math.floor(m/60)+':'+('0'+(m%60)).slice(-2); }
+
+// Short timeline label ("Chop vegetables"). Directions optimized before labels
+// existed fall back to the first clause of the step, trimmed to a few words.
+function stepLabel(s){
+  if(s.label) return s.label;
+  var words=String(s.text||'').split(/[.;:,(]/)[0].trim().split(/\s+/);
+  return words.slice(0,5).join(' ')+(words.length>5?'…':'');
+}
+
+function cookGanttHTML(sched, cooks){
+  var total=Math.max(sched.total,1), html='<div class="ck-gantt">';
+  sched.rows.forEach(function(r){
+    var cls='ck-gbar'+(r.step.handsOn?(r.cook===1?' c1':''):' off')+(cook.done[r.step.id]?' done':'');
+    var label=stepLabel(r.step);
+    html+='<div class="ck-grow"><div class="ck-glabel'+(cook.done[r.step.id]?' done':'')+'" title="'+esc(label)+'"><b>'+r.num+'</b>'+esc(label)+'</div><div class="ck-gtrack">'
+      +'<div class="'+cls+'" style="left:'+(r.start/total*100)+'%;width:'+((r.end-r.start)/total*100)+'%" title="'+esc(fmtClock(r.start)+' – '+fmtClock(r.end)+': '+r.step.text)+'"></div></div></div>';
+  });
+  var ticks=[0,total/4,total/2,total*3/4,total].map(function(m){ return '<span>'+fmtClock(m)+'</span>'; }).join('');
+  html+='<div class="ck-grow"><div class="ck-glabel"></div><div class="ck-gaxis">'+ticks+'</div></div></div>'
+    +'<div class="ck-legend"><span>'+(cooks>1?'Cook A':'Hands-on')+'</span>'+(cooks>1?'<span class="lg-c1">Cook B</span>':'')+'<span class="lg-off">Hands-off (oven, simmering…)</span></div>';
+  return html;
+}
+
+function renderCookMode(){
+  var el=document.getElementById('cook-mode'), t=cookTarget();
+  if(!cook||!el) return;
+  if(!t){ closeCookMode(); return; }
+  var opt=cookOptimized(t), srv=cookServingsOf(t);
+  var html='<div class="ck-head"><div class="ck-head-row">'
+    +'<button class="ck-back" onclick="closeCookMode()">&#8592; Back</button>'
+    +'<div class="ck-title">'+esc(t.name)+'</div></div><div class="ck-sub"><span>'+srv+' serving'+(srv===1?'':'s')+'</span>';
+  var sched=null;
+  if(opt){
+    sched=scheduleSteps(opt.steps,cook.cooks);
+    var one=cook.cooks===1?sched:scheduleSteps(opt.steps,1), two=cook.cooks===2?sched:scheduleSteps(opt.steps,2);
+    html+='<span>Ready in ~'+fmtMins(sched.total)+(two.total<one.total-1&&cook.cooks===1?' (~'+fmtMins(two.total)+' with 2 cooks)':'')+'</span>'
+      +'<span class="ck-seg"><button class="'+(cook.cooks===1?'on':'')+'" onclick="setCooks(1)">1 cook</button><button class="'+(cook.cooks===2?'on':'')+'" onclick="setCooks(2)">2 cooks</button></span>';
+  }
+  if(Object.keys(cookTimers).length) html+='<div class="ck-chips">'+timerChipsHTML()+'</div>';
+  html+='</div></div>';
+
+  // Ingredients, scaled to this meal's servings
+  var ings=scaleIngs(effectiveIngs(t),srv);
+  if(ings.length) html+='<div class="ck-section">Ingredients</div><div class="ck-card"><ul class="ck-ings">'+ings.map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul></div>';
+
+  if(cook.loading) html+='<div class="ck-section">Directions</div><div class="ck-card ck-status"><div class="spinner" style="border-color:var(--sage-mid);border-top-color:var(--sage)"></div>Optimizing the directions… (original steps below)</div>';
+  else if(cook.error) html+='<div class="ck-section">Directions</div><div class="ck-card ck-status">Couldn’t optimize: '+esc(cook.error)+' <button class="ck-link" onclick="optimizeCookTarget()">Try again</button></div>';
+  else if(!opt) html+='<div class="ck-section">Directions</div><div class="ck-card ck-status">'+(isOnline()?'<button class="ck-link" onclick="optimizeCookTarget()">Optimize these directions</button>':'Optimized directions need an internet connection the first time. Showing the original steps.')+'</div>';
+
+  if(opt&&!cook.showOriginal){
+    if(opt.changes&&opt.changes.length) html+='<div class="ck-section">What changed</div><div class="ck-card"><ul class="ck-changes">'+opt.changes.map(function(c){ return '<li>'+esc(c)+'</li>'; }).join('')+'</ul></div>';
+    html+='<div class="ck-section">Timeline</div><div class="ck-card">'+cookGanttHTML(sched,cook.cooks)+'</div>';
+    html+='<div class="ck-section">Steps <button class="ck-link" style="float:right;text-transform:none;letter-spacing:0" onclick="cook.showOriginal=true;renderCookMode()">Original directions</button></div>';
+    var nowId=null;
+    sched.rows.forEach(function(r){ if(!nowId&&!cook.done[r.step.id]) nowId=r.step.id; });
+    sched.rows.forEach(function(r){
+      var s=r.step, done=!!cook.done[s.id];
+      var waits=(s.after||[]).map(function(a){ var i=opt.steps.findIndex(function(x){ return x.id===a; }); return i>=0?i+1:null; }).filter(Boolean);
+      html+='<div class="ck-step'+(done?' done':'')+(s.id===nowId?' now':'')+'" onclick="toggleCookStep(\''+esc(s.id)+'\')">'
+        +'<div class="ck-check">'+(done?'&#10003;':'')+'</div><div style="flex:1">'
+        +'<div class="ck-meta"><strong>Step '+r.num+'</strong><span>at '+fmtClock(r.start)+' &middot; '+fmtMins(s.mins)+'</span>'
+        +(s.kind==='prep'?'<span class="ck-tag">prep</span>':'')
+        +(!s.handsOn?'<span class="ck-tag off">hands-off</span>':'')
+        +(cook.cooks>1&&r.cook>=0?'<span class="ck-tag">Cook '+(r.cook?'B':'A')+'</span>':'')
+        +(waits.length?'<span>after step '+waits.join(', ')+'</span>':'')
+        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepTimerHTML(t,s)+'</div></div>';
+    });
+  } else {
+    html+='<div class="ck-section">'+(opt?'Original directions <button class="ck-link" style="float:right;text-transform:none;letter-spacing:0" onclick="cook.showOriginal=false;renderCookMode()">Optimized steps</button>':'Steps')+'</div>';
+    (t.steps||[]).forEach(function(s,i){
+      var id='o'+i, done=!!cook.done[id];
+      html+='<div class="ck-step'+(done?' done':'')+'" onclick="toggleCookStep(\''+id+'\')"><div class="ck-check">'+(done?'&#10003;':'')+'</div>'
+        +'<div style="flex:1"><div class="ck-meta"><strong>Step '+(i+1)+'</strong></div><div class="ck-text">'+esc(s)+'</div></div></div>';
+    });
+  }
+  el.innerHTML=html;
+}
+// ── Countdown timers for hands-off steps ──────────────────────────────────────
+// Keyed by recipe + step so they survive leaving cooking mode; saved to
+// localStorage so a reload doesn't lose them. When one finishes it chimes and
+// vibrates every few seconds until stopped (up to 3 minutes).
+var cookTimers={};  // key -> {key, label, recipe, endAt, ringing}
+var timerTick=null, alarmAudio=null;
+try{ cookTimers=JSON.parse(localStorage.getItem('nourish_timers')||'{}')||{}; }catch(e){ cookTimers={}; }
+function saveTimers(){ try{ localStorage.setItem('nourish_timers',JSON.stringify(cookTimers)); }catch(e){} }
+function timerKey(t,s){ return hashStr(t.name||'')+':'+s.id; }
+function fmtCountdown(ms){ var s=Math.max(0,Math.ceil(ms/1000)); return Math.floor(s/60)+':'+('0'+(s%60)).slice(-2); }
+
+function startStepTimer(stepId){
+  var t=cookTarget(), opt=t&&cookOptimized(t); if(!opt) return;
+  var s=opt.steps.find(function(x){ return x.id===stepId; }); if(!s) return;
+  unlockAlarmAudio();  // needs this tap to be allowed to play later
+  var key=timerKey(t,s);
+  cookTimers[key]={key:key, label:stepLabel(s), recipe:t.name, endAt:Date.now()+Math.max(1,Number(s.mins)||1)*60000};
+  saveTimers(); ensureTimerTick(); renderCookMode(); renderTimerFloat();
+}
+function addTimerMinute(key){ var tm=cookTimers[key]; if(!tm) return; tm.endAt=Math.max(Date.now(),tm.endAt)+60000; tm.ringing=false; saveTimers(); refreshTimerViews(); }
+function clearTimer(key){ delete cookTimers[key]; saveTimers(); refreshTimerViews(); }
+function refreshTimerViews(){ if(cook) renderCookMode(); renderTimerFloat(); renderTimerAlert(); }
+
+function ensureTimerTick(){
+  if(timerTick||!Object.keys(cookTimers).length) return;
+  timerTick=setInterval(function(){
+    var keys=Object.keys(cookTimers), now=Date.now(), changed=false;
+    if(!keys.length){ clearInterval(timerTick); timerTick=null; return; }
+    keys.forEach(function(k){
+      var tm=cookTimers[k], left=tm.endAt-now;
+      document.querySelectorAll('[data-timer="'+k+'"]').forEach(function(el){ el.textContent=fmtCountdown(left); });
+      if(left<=0&&!tm.ringing){ tm.ringing=true; tm.rangAt=now; changed=true; }
+      if(tm.ringing&&now-(tm.rangAt||now)<180000&&Math.floor((now-(tm.rangAt||now))/500)%6===0) ringAlarm();
+    });
+    if(changed){ saveTimers(); refreshTimerViews(); }
+  },500);
+}
+function unlockAlarmAudio(){
+  try{ if(!alarmAudio) alarmAudio=new (window.AudioContext||window.webkitAudioContext)(); if(alarmAudio.state==='suspended') alarmAudio.resume(); }catch(e){}
+}
+function ringAlarm(){
+  try{ if(navigator.vibrate) navigator.vibrate([300,150,300]); }catch(e){}
+  if(!alarmAudio) return;
+  try{
+    [0,0.25,0.5].forEach(function(dt){
+      var o=alarmAudio.createOscillator(), g=alarmAudio.createGain(), t0=alarmAudio.currentTime+dt;
+      o.frequency.value=880; g.gain.setValueAtTime(0.25,t0); g.gain.exponentialRampToValueAtTime(0.001,t0+0.2);
+      o.connect(g); g.connect(alarmAudio.destination); o.start(t0); o.stop(t0+0.22);
+    });
+  }catch(e){}
+}
+// Controls for one step (running countdown, ringing, or a start button)
+function stepTimerHTML(t,s){
+  if(s.handsOn||!(Number(s.mins)>0)) return '';
+  var key=timerKey(t,s), tm=cookTimers[key], stop='event.stopPropagation();';
+  if(tm&&tm.ringing) return '<div class="ck-timer ringing"><span>⏰ '+esc(tm.label)+' is done</span><button onclick="'+stop+'clearTimer(\''+key+'\')">Stop</button><button onclick="'+stop+'addTimerMinute(\''+key+'\')">+1 min</button></div>';
+  if(tm) return '<div class="ck-timer running"><span>⏱ <b data-timer="'+key+'">'+fmtCountdown(tm.endAt-Date.now())+'</b></span><button onclick="'+stop+'addTimerMinute(\''+key+'\')">+1 min</button><button onclick="'+stop+'clearTimer(\''+key+'\')">&#10005;</button></div>';
+  return '<div class="ck-timer"><button class="ck-timer-start" onclick="'+stop+'startStepTimer(\''+esc(s.id)+'\')">&#9654; '+fmtCountdown(s.mins*60000)+' timer</button></div>';
+}
+// Running timers as compact chips (cooking-mode header and the floating strip)
+function timerChipsHTML(){
+  return Object.keys(cookTimers).map(function(k){
+    var tm=cookTimers[k];
+    return '<span class="ck-chip'+(tm.ringing?' ringing':'')+'" onclick="'+(tm.ringing?'clearTimer(\''+k+'\')':'')+'">'
+      +esc(tm.label)+' '+(tm.ringing?'⏰ done &middot; Stop':'<b data-timer="'+k+'">'+fmtCountdown(tm.endAt-Date.now())+'</b>')+'</span>';
+  }).join('');
+}
+// While any timer is ringing, a banner at the top of every view says what it's for
+function renderTimerAlert(){
+  var el=document.getElementById('timer-alert'); if(!el) return;
+  var ringing=Object.keys(cookTimers).filter(function(k){ return cookTimers[k].ringing; });
+  el.style.display=ringing.length?'':'none';
+  el.innerHTML=ringing.map(function(k){
+    var tm=cookTimers[k];
+    return '<div class="ta-row"><div class="ta-text"><strong>⏰ '+esc(tm.label)+' is done</strong>'
+      +(tm.recipe?'<span>'+esc(tm.recipe)+'</span>':'')+'</div>'
+      +'<button onclick="addTimerMinute(\''+k+'\')">+1 min</button><button class="ta-stop" onclick="clearTimer(\''+k+'\')">Stop</button></div>';
+  }).join('');
+}
+// Outside cooking mode, running timers float at the bottom of the app
+function renderTimerFloat(){
+  var el=document.getElementById('timer-float'); if(!el) return;
+  var any=Object.keys(cookTimers).length&&!cook;
+  el.style.display=any?'':'none';
+  if(any) el.innerHTML=timerChipsHTML();
+}
+
+function setCooks(n){ if(cook){ cook.cooks=n; renderCookMode(); } }
+function toggleCookStep(id){ if(!cook) return; cook.done[id]=!cook.done[id]; renderCookMode(); }
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
+// Timers still running from before a reload
+ensureTimerTick(); renderTimerFloat(); renderTimerAlert();
+
 // Service worker keeps the app itself available offline (see sw.js)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function(){
