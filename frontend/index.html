@@ -1257,9 +1257,11 @@ function recomputeGroceryLocal() {
       var base=effectiveIngs(meal);
       scaleIngs(base,srv).forEach(function(ing){
         var p=parseIng(ing), name=(p.rest||ing).split(',')[0].trim();
-        // "1 (15 oz) can chickpeas" -> 1 can of "chickpeas"
-        var sized=!p.unit&&name.match(/^\(\s*[\d.]+\s*-?\s*oz\.?\s*\)\s*cans?\s+(.+)/i);
-        if (sized){ name=sized[1]; p.unit='can'; }
+        // Keep the can size in the unit so sizes never merge:
+        // "1 (15 oz) can chickpeas" and "1 can (15 oz) chickpeas" -> 1 "(15 oz) can" of "chickpeas"
+        var sized=!p.unit&&name.match(/^\(\s*([\d.]+)\s*-?\s*oz\.?\s*\)\s*cans?\s+(.+)/i)
+               ||/^cans?$/i.test(p.unit||'')&&name.match(/^\(\s*([\d.]+)\s*-?\s*oz\.?\s*\)\s*(.+)/i);
+        if (sized){ name=sized[2]; p.unit='('+sized[1]+' oz) can'; }
         // Home-cooked beans: shop for dried (1 cup dried ~ 3 cups cooked)
         var bt=beanPrep!=='can'&&/^cooked\b/i.test(name)&&beanType(name);
         if (bt&&p.qty){ name='dried '+bt.label; p.qty=p.qty/3; }
