@@ -329,6 +329,40 @@ describe('Anthropic calls', () => {
     expect(calls.length).toBe(0);
   });
 
+  it('/optimize-steps passes the household\'s cooking notes to Claude', async () => {
+    const calls = mockAnthropic({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"steps":[],"changes":[]}' }] });
+    await optimize({ name: 'Salmon', ingredients: [], steps: ['Bake 15 minutes.'], notes: ['"Bake salmon" took 20 min, not 15'] });
+    expect(calls[0].body.messages[0].content).toContain('NOTES FROM COOKING THIS BEFORE');
+    expect(calls[0].body.messages[0].content).toContain('took 20 min, not 15');
+  });
+
+  const revise = (body: unknown) => SELF.fetch(`${BASE}/revise-recipe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  it('/revise-recipe sends the recipe and feedback and returns the revision', async () => {
+    const revised = { recipe: { name: 'Salmon', prepMins: 40, calories: 500, protein: 40, carbs: 10, fat: 30,
+      ingredients: ['6 oz salmon'], steps: ['Bake 20 minutes.'], notes: '' }, changes: ['Bake 20 minutes instead of 15'] };
+    const calls = mockAnthropic({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(revised) }] });
+    const res = await revise({ recipe: { name: 'Salmon', ingredients: ['6 oz salmon'], steps: ['Bake 15 minutes.'] },
+      feedback: 'It needed 20 minutes', notes: ['"Bake salmon" took 20 min, not 15'] });
+    expect(await res.json()).toEqual(revised);
+    const prompt = calls[0].body.messages[0].content;
+    expect(prompt).toContain('FEEDBACK: It needed 20 minutes');
+    expect(prompt).toContain('1. Bake 15 minutes.');
+    expect(prompt).toContain('took 20 min, not 15');
+    expect(calls[0].body.output_config.format.schema.required).toEqual(['recipe', 'changes']);
+  });
+
+  it('/revise-recipe rejects requests without steps or feedback, without calling Claude', async () => {
+    const calls = mockAnthropic({ stop_reason: 'end_turn', content: [] });
+    expect((await revise({ recipe: { steps: [] }, feedback: 'x' })).status).toBe(400);
+    expect((await revise({ recipe: { steps: ['Stir.'] }, feedback: '  ' })).status).toBe(400);
+    expect(calls.length).toBe(0);
+  });
+
   it('reports a refusal instead of parsing it', async () => {
     mockAnthropic({ stop_reason: 'refusal', content: [] });
     const res = await parseText();
