@@ -1281,10 +1281,19 @@ function recomputeGroceryLocal() {
   if (currentPlan.groceryList) currentPlan.groceryList.forEach(function(item){ if(item.category){ catMap[ingKey(item.name)]=item.category; catMap[mergeKey(item.name)]=item.category; } });
   var newList=order.map(function(k){
     var m=merged[k], parts=[];
+    // A can with no stated size is assumed to be the item's only known size, so it's
+    // summed with those cans before rounding (several or no known sizes: kept apart)
+    var sizes=Object.keys(m.units).filter(function(u){ return /^\(.*\) can$/.test(u); });
+    if (m.units.can&&sizes.length===1){ m.units[sizes[0]]+=m.units.can; delete m.units.can; }
     if (m.bare) parts.push(fmtQty(m.bare));
     if (m.vol)  parts.push(fmtVolume(m.vol));
     if (m.wt)   parts.push(fmtWeight(m.wt));
-    Object.keys(m.units).forEach(function(u){ var q=m.units[u]; parts.push(fmtQty(q)+' '+u+(q>1&&!/s$/.test(u)&&u!=='pkg'?'s':'')); });
+    Object.keys(m.units).forEach(function(u){
+      var q=m.units[u];
+      // Cans are bought whole: round the week's total (already summed) up, e.g. 1/4 + 1/4 -> 1 can
+      if (/\bcan$/.test(u)) q=Math.ceil(q-1e-6);
+      parts.push(fmtQty(q)+' '+u+(q>1&&!/s$/.test(u)&&u!=='pkg'?'s':''));
+    });
     // Beans switch between canned and dried with the bean setting, so don't reuse a stale category
     var cat=beanType(m.name)?guessCategory(m.name):(catMap[k]||catMap[ingKey(m.name)]||guessCategory(m.name));
     return {name:m.name,qty:parts.join(' + '),category:cat};
