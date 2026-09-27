@@ -3027,7 +3027,10 @@ function renderPickerList(q){
     return slotType&&((r.mealTypes||[]).indexOf(slotType)>=0||(r.tags||[]).indexOf(slotType)>=0)?0:1;
   };
   var dietRank=function(r){ var f=fitsActiveDiets(r); return f===true?0:f===null?1:2; };
-  filtered=filtered.slice().sort(function(a,b){ return dietRank(a)-dietRank(b)||typeRank(a)-typeRank(b); });
+  // Adding a side: side dishes come first, then diet fit; otherwise diet fit, then meal type
+  filtered=filtered.slice().sort(slotType==='side'
+    ? function(a,b){ return typeRank(a)-typeRank(b)||dietRank(a)-dietRank(b); }
+    : function(a,b){ return dietRank(a)-dietRank(b)||typeRank(a)-typeRank(b); });
   var outside=filtered.filter(function(r){ return dietRank(r)===2; }).length;
   if(!pickerShowAll) filtered=filtered.filter(function(r){ return dietRank(r)<2; });
   if(!filtered.length&&!outside){list.innerHTML='<div style="text-align:center;padding:20px;font-size:12px;color:var(--ink-light)">'+(savedRecipes.length?'No matches':'No saved recipes yet &mdash; import some on the Recipes tab.')+'</div>';return;}
