@@ -1509,6 +1509,8 @@ var BUY_FORMS=[
   // By the crown/head, or by weight (alt:'weight'): a crown ~ 3 cups florets, 1 cup ~ 3 oz;
   // a cabbage head ~ 10 cups shredded, 1 cup ~ 2 1/2 oz (bagged shredded is sold by weight)
   [/^broccoli$/, {whole:'crown', prep:'by weight', alt:'weight', tsp:{crown:144, head:144, each:144, oz:16, lb:256}}],
+  // Frozen broccoli and cauliflower come in bags by weight: crowns, heads and cups convert
+  [/^frozen (broccoli|cauliflower)$/, {whole:'oz', fixed:true, tsp:{crown:144, head:144, each:144, oz:16, lb:256}}],
   [/^cabbage$/,  {whole:'head',  prep:'shredded', alt:'weight', suffix:'shredded', tsp:{head:480, each:480, oz:19, lb:304}}],
   // Lemons and limes are bought whole: juice amounts become fruit (~3 tbsp a lemon, 2 a lime)
   [/^lemon$/,    {whole:'each', fixed:true, slack:0.05, tsp:{each:9}}],
@@ -1589,12 +1591,10 @@ function toggleCannedFresh(key, evt){
   if (buyAs[key]==='fresh') delete buyAs[key]; else buyAs[key]='fresh';
   saveSettings(); renderGrocery();
 }
-// Names as shown: canned goods are listed under Canned & Preserved, so "Canned" comes off
-// when the rest is itself a canned good ("Chickpeas", "Diced tomatoes"), but stays on a
-// name that would read as fresh ("Canned tomatoes", "Canned corn", "Canned chicken")
+// Names as shown: canned and frozen goods have their own sections, so the name
+// doesn't repeat it ("Chickpeas" under Canned & Preserved, "Peas" under Frozen)
 function groceryDisplayName(item){
-  var name=String(item.name), rest=name.replace(/^canned\s+/i,'');
-  if (rest===name||guessCategory(rest)!=='Canned & Preserved') return name;
+  var rest=String(item.name).replace(/^(canned|frozen)\s+/i,'');
   return rest.charAt(0).toUpperCase()+rest.slice(1);
 }
 function buyAsQty(item){
