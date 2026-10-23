@@ -2227,23 +2227,74 @@ function fmtGroceryTotal(m){
 var PORTION_WORDS='squares?|slices?|servings?|portions?|pieces?|bars?|wedges?|muffins?|bowls?|helpings?';
 var PORTION_RE=new RegExp('^('+PORTION_WORDS+')\\b');
 var MADE_RE=/\b(leftovers?|prepared|made|homemade|reserved|batch)\b/;
-function dishTokens(s){
-  var skip=new RegExp('^(a|an|the|of|from|with|leftovers?|prepared|made|ahead|homemade|reserved|batch|'+PORTION_WORDS+')$');
+function dishTokens(s){ return nameTokens(s,false); }
+// The words of a name, as a matching key: lower case, any order, singular, filler
+// ("leftover", "the") left out; portion words ("square", "muffin") too unless keepPortion
+function nameTokens(s, keepPortion){
+  var skip=new RegExp('^(a|an|the|of|from|with|and|leftovers?|prepared|made|ahead|homemade|reserved|batch'+(keepPortion?'':'|'+PORTION_WORDS)+')$');
   return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\([^)]*\)/g,' ')
     .replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(function(w){ return w&&!skip.test(w); }).map(singular).sort().join(' ');
 }
-// {tokens: [dish, ...]} for every planned dish (mains and sides) with a 2+ word name
+
+// ── Make-ahead batches ────────────────────────────────────────────────────────
+// A make-ahead task can produce something meals then use by name: "bake 8 spinach-feta
+// egg muffins", with breakfasts listing "2 spinach-feta egg muffins". The task says what
+// it makes and its ingredients for the whole batch (tip.makes, tip.ingredients); those
+// are bought, and the meals' "2 ... muffins" aren't. Tasks that only prep ingredients the
+// meals already list (chopping onions) have no `makes`, so nothing is counted twice.
+function batchTips(plan){
+  var tips=plan&&plan.summary&&plan.summary.sharedPrepTips;
+  return Array.isArray(tips)?tips.filter(function(t){
+    return t&&typeof t==='object'&&t.makes&&Array.isArray(t.ingredients)&&t.ingredients.length;
+  }):[];
+}
+// Plans made before tasks said what they make: ask Claude once per plan which tasks make
+// something meals use by name, and with what, then rebuild the grocery list
+var _batchReadInFlight=false;
+function ensureBatchTipIngredients(){
+  var plan=currentPlan, tips=plan&&plan.summary&&plan.summary.sharedPrepTips;
+  if (!Array.isArray(tips)||_batchReadInFlight||!isOnline()) return;
+  var todo=tips.filter(function(t){ return t&&typeof t==='object'&&t.task&&!Array.isArray(t.ingredients); });
+  if (!todo.length) return;
+  _batchReadInFlight=true;
+  var prompt='Meal-plan batch-prep tasks are below. For each, if it makes something the meals then use by name as an ingredient '
+    +'(like "spinach-feta egg muffins" or "cooked brown rice"), give that name as "makes" and its raw ingredients with TOTAL amounts '
+    +'for the whole batch in US units (leave out water). If it only preps ingredients the meals already list (chopping onions, '
+    +'washing greens), "makes" is null and "ingredients" is [].\n\n'
+    +todo.map(function(t,i){ return (i+1)+'. '+t.task; }).join('\n')
+    +'\n\nReturn ONLY valid JSON with one entry per task, in order: {"tips":[{"makes":null,"ingredients":[]}]}';
+  callClaude(prompt,2000).then(function(r){
+    var got=(r&&Array.isArray(r.tips))?r.tips:[];
+    todo.forEach(function(t,i){
+      var x=got[i]||{};
+      t.makes=x.makes||null;
+      t.ingredients=Array.isArray(x.ingredients)?x.ingredients.map(String):[];
+    });
+    if (currentPlan!==plan) return;
+    recomputeGroceryLocal(); pushPlan(plan);
+    if (batchTips(plan).length) scheduleGroceryRefresh();  // Claude's list with the batches too
+  }).catch(function(){}).finally(function(){ _batchReadInFlight=false; });
+}
+// {tokens: [dish, ...]} for every planned dish (mains and sides) with a 2+ word name, and
+// {'tip:'+tokens: [batch]} for make-ahead batches (matched on the full name, "egg muffins")
 function plannedDishIndex(plan){
   var idx={};
   if (plan&&plan.days) plan.days.forEach(function(day){ day.meals.forEach(function(m){
     mealDishes(m).forEach(function(d){ var t=dishTokens(d.name||''); if (t.indexOf(' ')>0) (idx[t]=idx[t]||[]).push(d); });
   }); });
+  batchTips(plan).forEach(function(tip){
+    var t='tip:'+nameTokens(tip.makes,true);
+    (idx[t]=idx[t]||[]).push({batch:tip});
+  });
   return idx;
 }
-// Is this ingredient (or grocery item name) a portion of another planned dish? `own`
-// are the dishes it belongs to, which never count.
-function isPlannedDishRef(ing, idx, own){
+// What this ingredient (or grocery item name) refers to: another planned dish it's a
+// portion of, or a make-ahead batch ({batch}) it's some of; null if it's bought.
+// `own` are the dishes it belongs to, which never count.
+function plannedDishRef(ing, idx, own){
   var text=String(ing), p=parseIng(text), name=(p.rest||text).split(',')[0].trim().toLowerCase();
+  var batch=idx['tip:'+nameTokens(name,true)];
+  if (batch) return batch[0];
   var tokens=dishTokens(name);
   // Reads as some of that dish: a portion word, or a name distinctive enough (3+ words,
   // "2 spinach-feta egg muffins") to be the dish itself. A 2-word name needs the portion
@@ -2251,23 +2302,32 @@ function isPlannedDishRef(ing, idx, own){
   var portion=PORTION_RE.test((p.unit||'').toLowerCase())||PORTION_RE.test(name)||MADE_RE.test(text.toLowerCase())
     ||tokens.split(' ').length>=3;
   var hits=portion&&idx[tokens];
-  return !!hits&&hits.some(function(d){ return own.indexOf(d)<0; });
+  return hits&&hits.filter(function(d){ return own.indexOf(d)<0; })[0]||null;
 }
+function isPlannedDishRef(ing, idx, own){ return !!plannedDishRef(ing, idx, own); }
 // Water from the tap isn't bought; distilled, sparkling, coconut and the like are
 function isTapWater(key){
   return /^((hot|cold|warm|lukewarm|boiling|ice|ice-cold|iced|tap|filtered|room temperature|plain)\s+)*water$/.test(key);
 }
 function planGroceryLines(plan){
-  var out=[], dishes=plannedDishIndex(plan);
+  var out=[], dishes=plannedDishIndex(plan), usedBatches=[];
   plan.days.forEach(function(day,di){
     day.meals.forEach(function(meal){
       if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
       var own=mealDishes(meal);
-      var ings=mealEffectiveIngs(meal).filter(function(i){ return !isPlannedDishRef(i,dishes,own); });  // main + sides
+      var ings=mealEffectiveIngs(meal).filter(function(i){  // main + sides
+        var ref=plannedDishRef(i,dishes,own);
+        if (ref&&ref.batch&&usedBatches.indexOf(ref.batch)<0) usedBatches.push(ref.batch);
+        return !ref;
+      });
       var lines=scaleIngs(groceryIngs(ings),mealCookServings(meal,di))
         .map(groceryLine).filter(Boolean);
       out.push({di:di, day:day, meal:meal, lines:lines});
     });
+  });
+  // Make-ahead batches the meals use: their ingredients, as given for the whole batch
+  usedBatches.forEach(function(tip){
+    out.push({batch:tip, label:'Make-ahead: '+tip.makes, lines:groceryIngs(tip.ingredients).map(groceryLine).filter(Boolean)});
   });
   return out;
 }
@@ -2293,7 +2353,7 @@ function grocerySourcesByKey(plan){
   var by={};
   if (!plan||!plan.days) return by;
   planGroceryLines(plan).forEach(function(e){
-    var label=e.day.dayName+' '+mealLabel(e.meal.type)+': '+mealDisplayName(e.meal), sums={};
+    var label=e.label||e.day.dayName+' '+mealLabel(e.meal.type)+': '+mealDisplayName(e.meal), sums={};
     e.lines.forEach(function(l){ var k=viewKey(l.k); addGroceryLine(sums[k]||(sums[k]={bare:0,vol:0,wt:0,units:{}}),l); });
     Object.keys(sums).forEach(function(k){
       var q=fmtGroceryTotal(sums[k]);
@@ -2665,10 +2725,13 @@ function buildPrompt() {
     +librarySection()
     +sidesRules()
     +'\n\nINGREDIENT UNITS: US customary (cups, tbsp, tsp, oz, lb). Ingredients are for 1 serving.'+MEAT_RULE
-    +'\n\nsharedPrepTips: 3-5 batch-prep tasks as structured objects with fields: task (action + total quantity; if the step combines multiple ingredients spell them out inline, e.g. "Make 3 cups tomato-herb sauce by combining 2 cans crushed tomatoes with 1 tsp oregano and 1 tsp basil" — never just name the result without saying how to make it), keepsDays (integer — how many days it stays safe to eat refrigerated), qualityNote (optional — when texture/flavour starts to degrade before it becomes unsafe), meals (array of "DayName type" strings listing every meal in the plan that uses it).'
+    +'\n\nsharedPrepTips: 3-5 batch-prep tasks as structured objects with fields: task (action + total quantity; if the step combines multiple ingredients spell them out inline, e.g. "Make 3 cups tomato-herb sauce by combining 2 cans crushed tomatoes with 1 tsp oregano and 1 tsp basil" — never just name the result without saying how to make it), keepsDays (integer — how many days it stays safe to eat refrigerated), qualityNote (optional — when texture/flavour starts to degrade before it becomes unsafe), meals (array of "DayName type" strings listing every meal in the plan that uses it), '
+    +'makes (when meals use the result by name as an ingredient, that name, e.g. "spinach-feta egg muffins" or "cooked brown rice"; otherwise null), '
+    +'ingredients (when it has makes: the raw ingredients for the WHOLE batch with total amounts in US units, e.g. ["8 eggs","2 cups spinach"]; otherwise []). '
+    +'A meal that uses a batch lists it by exactly that name ("2 spinach-feta egg muffins") and does not repeat the batch\'s raw ingredients; the grocery list buys the batch\'s ingredients once.'
     +prepScheduleRules()+beanRules()
     +'\n\nReturn ONLY valid JSON:'
-    +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":[{"task":"Cook 3 cups brown rice in 6 cups water with 1/2 tsp salt","keepsDays":5,"qualityNote":"may dry out by day 4","meals":["Monday lunch","Wednesday dinner","Friday lunch"]},{"task":"Make 2 cups tomato-herb sauce by combining 1 can crushed tomatoes with 1 tsp oregano, 1/2 tsp basil, and 2 cloves garlic","keepsDays":5,"qualityNote":"flavour deepens over 2 days","meals":["Tuesday dinner","Thursday lunch"]}]},'
+    +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":[{"task":"Cook 3 cups brown rice in 6 cups water with 1/2 tsp salt","keepsDays":5,"qualityNote":"may dry out by day 4","meals":["Monday lunch","Wednesday dinner","Friday lunch"],"makes":null,"ingredients":[]},{"task":"Bake 8 spinach-feta egg muffins: whisk 8 eggs with 1/2 cup milk, 2 cups chopped spinach and 1/2 cup crumbled feta, bake in a greased muffin tin 20 min at 350F","keepsDays":4,"meals":["Tuesday breakfast","Thursday breakfast"],"makes":"spinach-feta egg muffins","ingredients":["8 eggs","1/2 cup milk","2 cups spinach","1/2 cup crumbled feta"]}]},'
     +'"days":[{"dayName":"Monday","meals":[{"type":"dinner","name":"Chicken Stir-Fry","leftoversForLunch":true,"tags":["quick"],"prepMins":20,"calories":520,"protein":38,"carbs":45,"ingredients":["6 oz chicken breast"],"prepNote":null,"batchNote":null}]},'
     +'{"dayName":"Wednesday","meals":[{"type":"lunch","name":"Chicken Stir-Fry","isLeftover":true,"sourceDinner":"Chicken Stir-Fry"},{"type":"dinner","name":"Oatmeal","tags":["quick"],"prepMins":10,"calories":380,"protein":12,"carbs":58,"ingredients":["1 cup rolled oats"],"leftoversForLunch":false,"prepNote":null,"batchNote":null}]}]}'
     +'\n\nDo NOT include groceryList. Do NOT include cooking steps ("steps") for meals or sides: they are written later, when the household opens a meal. '
@@ -2676,15 +2739,24 @@ function buildPrompt() {
 }
 
 function buildGroceryPrompt(plan) {
-  var lines='';
+  var lines='', dishes=plannedDishIndex(plan), usedBatches=[];
   plan.days.forEach(function(day,di){
     day.meals.forEach(function(meal,mi){
       if(meal.isLeftover||meal._placeholder||!meal.ingredients) return;
-      var srv=mealCookServings(meal,di);
+      var srv=mealCookServings(meal,di), own=mealDishes(meal);
       mealDishes(meal).forEach(function(d){
-        lines+=day.dayName+' '+meal.type+' (x'+srv+'): '+d.name+' — '+effectiveIngs(d).join(', ')+'\n';
+        // Leave out portions of other planned dishes and make-ahead batches (bought below)
+        var ings=effectiveIngs(d).filter(function(i){
+          var ref=plannedDishRef(i,dishes,own);
+          if (ref&&ref.batch&&usedBatches.indexOf(ref.batch)<0) usedBatches.push(ref.batch);
+          return !ref;
+        });
+        lines+=day.dayName+' '+meal.type+' (x'+srv+'): '+d.name+' — '+ings.join(', ')+'\n';
       });
     });
+  });
+  usedBatches.forEach(function(tip){
+    lines+='Make-ahead batch (whole batch, x1): '+tip.makes+' — '+tip.ingredients.join(', ')+'\n';
   });
   return 'Produce a consolidated US grocery list for these meals.\n\n'+lines
     +'\nRULES: Scale by serving count, consolidate duplicates.'
@@ -3440,6 +3512,7 @@ function renderGrocery() {
     +'<button class="add-item-btn" onclick="addCustomItem()">+</button>'
     +'</div>';
   document.getElementById('grocery-content').innerHTML=html;
+  ensureBatchTipIngredients();  // older plans: learn what make-ahead tasks make, once
 }
 
 // Keep gs-dot/lbl refs working after re-render
