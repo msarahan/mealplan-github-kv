@@ -1483,8 +1483,9 @@ var BUY_FORMS=[
   [/^((red|yellow|white|sweet) )?onion$/, {whole:'each', prep:'chopped', tsp:{each:48}}],
   [/^shallot$/,                    {whole:'each',  prep:'minced',  tsp:{each:9}}],
   [/^carrot$/,                     {whole:'each',  prep:'chopped', tsp:{each:24}}],
-  [/bell pepper$/,                 {whole:'each',  prep:'chopped', tsp:{each:48}}],
-  [/^jalapeno$/,                   {whole:'each',  prep:'minced',  tsp:{each:6}}],
+  // Peppers are only bought whole (no switch); chopped amounts still convert to a count
+  [/bell pepper$/,                 {whole:'each',  fixed:true, tsp:{each:48}}],
+  [/^jalapeno$/,                   {whole:'each',  fixed:true, tsp:{each:6}}],
   // Cheese: a block by weight, or shredded/grated by volume (4 oz ~ 1 cup shredded, 3 oz ~ 1 cup grated)
   [new RegExp('^(?!fresh )([a-z-]+ )*('+SHRED_CHEESES+')$'), {whole:'oz', label:'block', prep:'shredded', tsp:{oz:12, lb:192}}],
   [new RegExp('^('+GRATE_CHEESES+')$'),            {whole:'oz', label:'block', prep:'grated',   tsp:{oz:16, lb:256}}],
