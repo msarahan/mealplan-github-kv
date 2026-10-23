@@ -1210,7 +1210,7 @@ function parseIng(str) {
   var qty=(whole+frac)||null, unit=m[3]||'', rest=(m[4]||'').replace(/^[.,]\s*/,'');  // "2 tbsp. oil", "2 cups, packed spinach"
   // Handle multi-word unit "fl oz"
   if (unit.toLowerCase()==='fl' && /^oz\b/i.test(rest)) { unit='fl oz'; rest=rest.replace(/^oz\s*/i,''); }
-  var known=['cup','cups','tbsp','tsp','oz','fl oz','lb','lbs','pound','pounds','quart','quarts','pint','pints','gallon','gallons','can','cans','bunch','bunches','head','heads','clove','cloves','slice','slices','piece','pieces','pinch','dash','stick','sticks','sprig','sprigs','stalk','stalks','handful','handfuls','ear','ears','crown','crowns','pkg','package','bag','jar','bottle'];
+  var known=['cup','cups','tbsp','tsp','oz','fl oz','lb','lbs','pound','pounds','quart','quarts','pint','pints','gallon','gallons','can','cans','bunch','bunches','head','heads','clove','cloves','slice','slices','piece','pieces','pinch','dash','stick','sticks','sprig','sprigs','stalk','stalks','handful','handfuls','ear','ears','crown','crowns','block','blocks','pkg','package','bag','jar','bottle'];
   // A size before the unit describes the unit: "1 small bunch cilantro" is 1 bunch
   var sized=/^(small|medium|large)$/i.test(unit)&&rest.match(/^([a-zA-Z]+)\s*(.*)/);
   if (sized&&known.indexOf(sized[1].toLowerCase())>=0){ unit=sized[1]; rest=sized[2]; }
@@ -1326,7 +1326,7 @@ function ingKey(name){ return name.toLowerCase().replace(/^(a |an |the |fresh |d
 var VOL_TSP={tsp:1,teaspoon:1,teaspoons:1,tbsp:3,tablespoon:3,tablespoons:3,'fl oz':6,cup:48,cups:48};
 var WT_OZ={oz:1,ounce:1,ounces:1,lb:16,lbs:16,pound:16,pounds:16};
 var UNIT_ALIAS={cloves:'clove',cans:'can',heads:'head',slices:'slice',pieces:'piece',sticks:'stick',quarts:'quart',pints:'pint',gallons:'gallon',package:'pkg',
-  bunches:'bunch',sprigs:'sprig',stalks:'stalk',handfuls:'handful',ears:'ear',crowns:'crown'};
+  bunches:'bunch',sprigs:'sprig',stalks:'stalk',handfuls:'handful',ears:'ear',crowns:'crown',blocks:'block'};
 // Pick the measure that reads cleanly: 4 tsp stays "4 tsp", 6 tsp is "2 tbsp", 24 tsp is "1/2 cup"
 function fmtVolume(tsp){
   var clean=function(x,dens){ return dens.some(function(d){ return Math.abs(x*d-Math.round(x*d))<0.01; }); };
@@ -1387,7 +1387,8 @@ function groceryItem(name, unit){
   n=n.replace(/[^a-z0-9&'\- ]/g,' ').replace(/\s+/g,' ').trim()
     .replace(/^(a|an|the|of) /,'')
     // A measure left in the name ("a bunch of cilantro", "small bunch cilantro")
-    .replace(/^(bunch|bunches|bunchs|sprigs?|handfuls?|stalks?|heads?|crowns?|cloves?|pinch|dash)( of)? (?=\S)/,'')
+    .replace(/^(bunch|bunches|bunchs|sprigs?|handfuls?|stalks?|heads?|crowns?|blocks?|cloves?|pinch|dash)( of)? (?=\S)/,'')
+    .replace(/\bmozarella\b/,'mozzarella')  // common misspelling
     // Varieties that are one item: Italian parsley, baby spinach
     .replace(/\b(italian|flat[- ]leaf|curly)\s+(parsley)\b/,'$2')
     .replace(/\bbaby\s+(spinach|kale|arugula)\b/,'$1');
@@ -1424,6 +1425,13 @@ function groceryIngs(ings){
     if (isCitrusPhrase(i)) i=citrusFruitText(i);
     return SALT_PEPPER_RE.test(i)?['salt','black pepper']:[i];
   }));
+}
+// "Block mozzarella | 1", "Crown broccoli | 4": the unit is in the name, so move it to the qty
+function unitFromName(item){
+  var m=/^\s*(blocks?|crowns?|heads?|bunch(?:es)?)\s+(?:of\s+)?(\S.*)$/i.exec(String(item.name)), p=item.qty&&parseIng(String(item.qty));
+  if (!m||!p||!p.qty||p.unit||p.rest) return item;
+  var u=m[1].toLowerCase(); u=UNIT_ALIAS[u]||u;
+  return Object.assign({},item,{name:m[2],qty:fmtQty(p.qty)+' '+pluralUnit(u,p.qty)});
 }
 // Claude's "Juice of 1/2 lime" or "Lime juice | 3 tbsp" is limes to buy (counted in buyAsQty)
 function citrusItem(item){
@@ -1487,7 +1495,7 @@ var BUY_FORMS=[
   [/bell pepper$/,                 {whole:'each',  fixed:true, tsp:{each:48}}],
   [/^jalapeno$/,                   {whole:'each',  fixed:true, tsp:{each:6}}],
   // Cheese: a block by weight, or shredded/grated by volume (4 oz ~ 1 cup shredded, 3 oz ~ 1 cup grated)
-  [new RegExp('^(?!fresh )([a-z-]+ )*('+SHRED_CHEESES+')$'), {whole:'oz', label:'block', prep:'shredded', tsp:{oz:12, lb:192}}],
+  [new RegExp('^(?!fresh )([a-z-]+ )*('+SHRED_CHEESES+')$'), {whole:'oz', label:'block', prep:'shredded', tsp:{oz:12, lb:192, block:96}}],  // a block ~ 8 oz
   [new RegExp('^('+GRATE_CHEESES+')$'),            {whole:'oz', label:'block', prep:'grated',   tsp:{oz:16, lb:256}}],
   // Salad greens are sold by weight only (no switch): 1 cup spinach ~ 1 oz, lighter greens ~ 3/4 oz
   [/^spinach$/,                                   {whole:'oz', fixed:true, tsp:{oz:48, lb:768}}],
@@ -1586,8 +1594,8 @@ function toggleFrozen(k, nowFrozen, evt){
 }
 
 // ── Store sections ────────────────────────────────────────────────────────────
-// Produce is split the way the store shelves it; the first match wins, and items
-// bought prepped (chopped herbs, broccoli by weight, shredded cabbage) are in the
+// Produce is split the way the store shelves it; the item's main noun decides
+// (headRule), and items bought prepped (chopped herbs, broccoli by weight, shredded cabbage) are in the
 // cut & bagged section. Every section is sorted by name.
 var PRODUCE_SECTIONS=[
   {label:'Onions, garlic & potatoes', re:/\b(onion|garlic|shallot|scallion|potato|yam|ginger)\b/},
@@ -1600,8 +1608,8 @@ function produceSection(item){
   var gi=groceryItem(item.name); if (!gi) return 'Other produce';
   var f=buyForm(gi.key);
   if (f&&!f.fixed&&buyAs[gi.key]==='prepped') return 'Cut & bagged';
-  for (var i=0;i<PRODUCE_SECTIONS.length;i++) if (PRODUCE_SECTIONS[i].re.test(gi.key)) return PRODUCE_SECTIONS[i].label;
-  return 'Other produce';
+  var s=headRule(gi.key, PRODUCE_SECTIONS, function(s){ return s.re; });
+  return s?s.label:'Other produce';
 }
 // [{label, items}] for one category: Produce by section, others as one sorted list
 function grocerySections(cat, items){
@@ -1627,7 +1635,7 @@ function consolidateGroceryList(list){
     if (!item||!item.name||!SALT_PEPPER_RE.test(item.name)) return [item];
     var qty=item.qty?String(item.qty).replace(/\s*\beach\b\s*/i,' ').trim():item.qty;
     return ['Salt','Black pepper'].map(function(n){ return Object.assign({},item,{name:n,qty:qty}); });
-  })).map(function(item){ return item&&item.name?applyFrozenPref(citrusItem(item)):item; });
+  })).map(function(item){ return item&&item.name?applyFrozenPref(citrusItem(unitFromName(item))):item; });
   list.forEach(function(item){
     var gi=item&&item.name&&groceryItem(item.name);
     if (!gi){ out.push(item); return; }
@@ -1641,26 +1649,46 @@ function consolidateGroceryList(list){
 }
 
 // Store section for items Claude hasn't categorized. First match wins.
+// A third element of true marks a word that decides wherever it is ("frozen peas");
+// otherwise the item's main noun decides (see headRule).
 var CAT_RULES=[
+  [/\bfrozen\b/,'Frozen',true],
+  [/\bsun-dried\b/,'Pantry',true],
+  [/\b(canned|tinned)\b/,'Canned & Preserved',true],
   [/\bdried\b.*\b(beans?|chickpeas|peas)\b/,'Pantry'],
+  [/\bdried\b.*\b(cranberr(y|ies)|apricots?|figs?|dates|raisins|cherr(y|ies)|mango(es)?|fruit)\b/,'Pantry'],
   [/^dried (basil|parsley|cilantro|mint|dill|thyme|oregano|rosemary|sage|tarragon|chives|herbs?)\b/,'Herbs & Spices'],
-  [/\bsun-dried\b/,'Pantry'],
   [/\b(peanut butter|almond butter|tahini|baking powder|baking soda)\b/,'Pantry'],
-  [/\bfrozen\b/,'Frozen'],
   [/\b(sugar snap|snap peas?|snow peas?|sweet potato(es)?|sweet corn)\b/,'Produce'],  // not "sugar" in Pantry
-  [/\b(canned|cans?|broth|stock|tomato paste|tomato sauce|diced tomatoes|crushed tomatoes|coconut milk|chickpeas|black beans|kidney beans|cannellini|pinto beans|refried beans)\b/,'Canned & Preserved'],
-  [/\b(salt|black pepper|peppercorns?|cumin|paprika|oregano|thyme|rosemary|cinnamon|nutmeg|turmeric|powder|chili flakes|red pepper flakes|garam masala|seasoning|spices?|bay lea(f|ves)|cayenne|coriander|ground ginger|ground cloves)\b/,'Herbs & Spices'],
+  [/\b(cans?|broth|stock|tomato paste|tomato sauce|diced tomatoes|crushed tomatoes|coconut milk|chickpeas|black beans|kidney beans|cannellini|pinto beans|refried beans)\b/,'Canned & Preserved'],
+  [/\b(salt|black pepper|peppercorns?|cumin|paprika|oregano|thyme|rosemary|cinnamon|nutmeg|turmeric|powder|chili flakes|red pepper flakes|crushed red pepper|garam masala|seasoning|spices?|bay lea(f|ves)|cayenne( pepper)?|coriander|ground ginger|ground cloves)\b/,'Herbs & Spices'],
   [/\b(chicken|beef|pork|turkey|lamb|salmon|cod|tilapia|halibut|tuna|shrimp|prawns?|fish|tofu|tempeh|sausages?|bacon|ham|steak)\b/,'Protein'],
   [/\b(milk|cheese|mozzarella|parmesan|cheddar|feta|ricotta|butter|yogurt|cream|eggs?|half-and-half|jack|swiss|gruyere|colby|provolone|fontina|gouda|havarti|pecorino|asiago|romano|grana padano)\b/,'Dairy & Eggs'],
   [/\b(almonds?|walnuts?|pecans?|cashews?|peanuts?|pistachios?|pine nuts|seeds?)\b/,'Nuts & Seeds'],
   [/\b(rice|pasta|spaghetti|penne|noodles?|bread|breadcrumbs|crumbs|panko|tortillas?|pitas?|buns?|oats|quinoa|couscous|flour|barley|farro|bulgur|crackers?)\b/,'Grains & Bread'],
   [/\b(oil|vinegar|sugar|honey|syrup|mustard|mayonnaise|mayo|ketchup|soy sauce|tamari|sauce|vanilla|cornstarch|lentils|salsa|jam)\b/,'Pantry'],
-  [/\b(onions?|garlic|shallots?|carrots?|celery|cabbage|lettuce|spinach|kale|arugula|chard|greens|tomato(es)?|potato(es)?|peppers?|jalape\w*|chiles?|lemons?|limes?|oranges?|apples?|bananas?|berry|berries|grapes?|pears?|peach(es)?|avocados?|cucumbers?|zucchini|squash|broccoli|cauliflower|mushrooms?|ginger|parsley|cilantro|basil|mint|dill|chives|scallions?|peas|green beans|corn|asparagus|eggplants?|radish(es)?|beets?|fennel|leeks?|mango(es)?|pineapple|melon|sprouts|herbs?)\b/,'Produce']
+  [/\b(onions?|garlic|shallots?|carrots?|celery|cabbage|lettuce|spinach|kale|arugula|chard|greens|tomato(es)?|potato(es)?|peppers?|jalape\w*|chiles?|lemons?|limes?|oranges?|apples?|bananas?|berry|berries|grapes?|pears?|peach(es)?|avocados?|cucumbers?|zucchini|squash|broccoli|cauliflower|mushrooms?|ginger|parsley|cilantro|basil|mint|dill|chives|scallions?|peas|green beans|corn|asparagus|eggplants?|radish(es)?|beets?|fennel|leeks?|mango(es)?|pineapple|melon|sprouts|herbs?|spring mix|mixed greens|salad mix|bok choy|romaine|okra|artichokes?|turnips?|parsnips?)\b/,'Produce']
 ];
+// Of `rules`, the one whose match ends at the text's last word and covers the most of
+// it: the main noun decides ("orange bell pepper" is a pepper) and the most specific
+// phrase wins ("coconut milk" over "milk", "fish sauce" over "fish"). If no match ends
+// there ("lime juice"), the first rule that matches anywhere. null if none match.
+function headRule(text, rules, reOf){
+  var best=null, bestLen=0;
+  rules.forEach(function(r){
+    var re=reOf(r), m=new RegExp('(?:'+re.source+')$').exec(text);
+    if (m&&m[0].length>bestLen){ best=r; bestLen=m[0].length; }
+  });
+  if (best) return best;
+  for (var i=0;i<rules.length;i++) if (reOf(rules[i]).test(text)) return rules[i];
+  return null;
+}
 function guessCategory(name){
-  var n=name.toLowerCase();
-  for (var i=0;i<CAT_RULES.length;i++) if (CAT_RULES[i][0].test(n)) return CAT_RULES[i][1];
-  return 'Other';
+  var n=String(name).toLowerCase().replace(/\([^)]*\)/g,' ').split(',')[0]
+    .replace(/[^a-z0-9&'\- ]/g,' ').replace(/\s+/g,' ').trim();
+  for (var i=0;i<CAT_RULES.length;i++) if (CAT_RULES[i][2]&&CAT_RULES[i][0].test(n)) return CAT_RULES[i][1];
+  var r=headRule(n, CAT_RULES.filter(function(r){ return !r[2]; }), function(r){ return r[0]; });
+  return r?r[1]:'Other';
 }
 
 // ── Beans from dried (beanPrep: soak | pressure) ──────────────────────────────
