@@ -1301,7 +1301,61 @@ function scaleIngs(ings, srv) {
 }
 
 // ── Meal card UI ──────────────────────────────────────────────────────────────
-function toggleMealCard(h){ h.closest('.meal-card').classList.toggle('open'); }
+function toggleMealCard(h){
+  var card=h.closest('.meal-card'); card.classList.toggle('open');
+  var m=card.classList.contains('open')&&/^meal-(\d+)-(\d+)$/.exec(card.id);
+  if (m) ensureSteps(+m[1],+m[2]);  // a new plan's meals get their steps when first opened
+}
+function rerenderMealCard(di,mi){
+  var card=document.getElementById('meal-'+di+'-'+mi), meal=currentPlan&&currentPlan.days[di]&&currentPlan.days[di].meals[mi];
+  if (!card||!meal) return;
+  var tmp=document.createElement('div'); tmp.innerHTML=buildMealCardHTML(di,mi,meal,card.classList.contains('open'));
+  card.parentNode.replaceChild(tmp.firstChild,card);
+}
+
+// ── Steps written on demand ───────────────────────────────────────────────────
+// Writing every meal's steps made a week's plan take minutes, so new plans come
+// without them (stepsPending) and a meal's steps (main and sides, one small call)
+// are written when it's opened, cooked or saved.
+function markStepsPending(plan){
+  plan.days.forEach(function(day){ day.meals.forEach(function(m){
+    mealDishes(m).forEach(function(d){ if (!d.libraryId&&!(d.steps&&d.steps.length)) d.stepsPending=true; });
+  }); });
+}
+var _stepsInFlight={};
+function ensureSteps(di,mi){
+  var meal=currentPlan&&currentPlan.days[di]&&currentPlan.days[di].meals[mi];
+  var need=meal?mealDishes(meal).filter(function(d){ return d.stepsPending; }):[];
+  var key=di+'-'+mi;
+  if (!need.length) return Promise.resolve();
+  if (_stepsInFlight[key]) return _stepsInFlight[key];
+  if (!isOnline()) return Promise.resolve();
+  var prompt='Write the cooking steps for '+(need.length>1?'these dishes, served together':'this dish')+'.'
+    +need.map(function(d,k){ return '\n\nDISH '+(k+1)+': '+d.name+'\nIngredients (per serving): '+effectiveIngs(d).join('; '); }).join('')
+    +'\n\n3-6 clear steps per dish, in cooking order. Don\'t restate quantities: the household cooks it for several people.'
+    +(meal.prepNote?' Make-ahead note for this meal: '+meal.prepNote:'')
+    +'\nReturn ONLY valid JSON: {"dishes":[{"name":"<dish name>","steps":["Step 1."]}]}';
+  var p=callClaude(prompt,2000).then(function(r){
+    var got=(r&&Array.isArray(r.dishes))?r.dishes:[];
+    need.forEach(function(d,k){
+      var s=got[k]&&got[k].steps;
+      if (Array.isArray(s)&&s.length){ d.steps=s.map(String); delete d.stepsPending; applySwapsToDish(d); }
+    });
+    pushPlan(currentPlan); rerenderMealCard(di,mi);
+  }).catch(function(e){
+    var el=document.getElementById('steps-'+key);
+    if (el) el.textContent='Couldn’t write the steps ('+e.message+'). Close and reopen the meal to try again.';
+  }).finally(function(){ delete _stepsInFlight[key]; });
+  _stepsInFlight[key]=p;
+  return p;
+}
+// Cook button: write the steps first if this meal doesn't have them yet
+async function cookMeal(di,mi){
+  await ensureSteps(di,mi);
+  var meal=currentPlan.days[di].meals[mi];
+  if (!(meal.steps&&meal.steps.length)){ showToast('This meal’s steps aren’t written yet — try again when you’re online.'); return; }
+  openCookMode('meal',di,mi);
+}
 function toggleRecipeCard(id){ var el=document.getElementById('rc-'+id); if(el) el.classList.toggle('open'); }
 
 // Household default for a meal: that day's servings, plus next day's lunch if it makes leftovers.
@@ -2457,9 +2511,10 @@ function buildPrompt() {
     +prepScheduleRules()+beanRules()
     +'\n\nReturn ONLY valid JSON:'
     +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":[{"task":"Cook 3 cups brown rice in 6 cups water with 1/2 tsp salt","keepsDays":5,"qualityNote":"may dry out by day 4","meals":["Monday lunch","Wednesday dinner","Friday lunch"]},{"task":"Make 2 cups tomato-herb sauce by combining 1 can crushed tomatoes with 1 tsp oregano, 1/2 tsp basil, and 2 cloves garlic","keepsDays":5,"qualityNote":"flavour deepens over 2 days","meals":["Tuesday dinner","Thursday lunch"]}]},'
-    +'"days":[{"dayName":"Monday","meals":[{"type":"dinner","name":"Chicken Stir-Fry","leftoversForLunch":true,"tags":["quick"],"prepMins":20,"calories":520,"protein":38,"carbs":45,"ingredients":["6 oz chicken breast"],"steps":["Cook chicken."],"prepNote":null,"batchNote":null}]},'
-    +'{"dayName":"Wednesday","meals":[{"type":"lunch","name":"Chicken Stir-Fry","isLeftover":true,"sourceDinner":"Chicken Stir-Fry"},{"type":"dinner","name":"Oatmeal","tags":["quick"],"prepMins":10,"calories":380,"protein":12,"carbs":58,"ingredients":["1 cup rolled oats"],"steps":["Cook oats."],"leftoversForLunch":false,"prepNote":null,"batchNote":null}]}]}'
-    +'\n\nDo NOT include groceryList. Ingredients 5-8 per meal. Steps 3-6. Realistic calories.';
+    +'"days":[{"dayName":"Monday","meals":[{"type":"dinner","name":"Chicken Stir-Fry","leftoversForLunch":true,"tags":["quick"],"prepMins":20,"calories":520,"protein":38,"carbs":45,"ingredients":["6 oz chicken breast"],"prepNote":null,"batchNote":null}]},'
+    +'{"dayName":"Wednesday","meals":[{"type":"lunch","name":"Chicken Stir-Fry","isLeftover":true,"sourceDinner":"Chicken Stir-Fry"},{"type":"dinner","name":"Oatmeal","tags":["quick"],"prepMins":10,"calories":380,"protein":12,"carbs":58,"ingredients":["1 cup rolled oats"],"leftoversForLunch":false,"prepNote":null,"batchNote":null}]}]}'
+    +'\n\nDo NOT include groceryList. Do NOT include cooking steps ("steps") for meals or sides: they are written later, when the household opens a meal. '
+    +'Ingredients 5-8 per meal. Realistic calories.';
 }
 
 function buildGroceryPrompt(plan) {
@@ -2527,7 +2582,7 @@ function buildBackfillPrompt(pinnedSummary, slotsToFill, cal, pro, carb) {
 
 // ── Progress ──────────────────────────────────────────────────────────────────
 var progInterval=null, progStart=0, progPhase=0;
-var PHASE_DUR=[34000,10000], PHASE_SHARE=[0.80,0.20];
+var PHASE_DUR=[120000,2000], PHASE_SHARE=[0.95,0.05];  // a full week from Claude takes ~2 min; the grocery list is local
 function startProg(phase){ progPhase=phase; progStart=Date.now(); if(progInterval) clearInterval(progInterval); progInterval=setInterval(tickProg,250); }
 function stopProg(){ if(progInterval){clearInterval(progInterval);progInterval=null;} }
 function tickProg(){
@@ -2588,21 +2643,22 @@ async function generatePlan() {
     var plan=fillFromLibrary(await callClaude(buildPrompt(),9000));
     applySwapsToPlan(plan);  // in case Claude didn't
     fitPlanToWeek(plan);  // the plan's week, whatever day names Claude used
+    markStepsPending(plan);  // steps are written when a meal is opened
     plan.prepDays=prepDays.slice();  // this plan's make-ahead days (from the New plan panel)
     currentPlan=plan; renderPlan(plan);
     await checkAndFixFreshness(plan);
-    var sub=document.getElementById('prog-sub'); if(sub) sub.textContent='Building grocery list...';
     var steps=document.querySelectorAll('.progress-step');
     if(steps[0]){steps[0].classList.remove('active');steps[0].classList.add('done');}
     if(steps[1]) steps[1].classList.add('active');
-    startProg(1);
-    var grocery=await callClaude(buildGroceryPrompt(plan),8000);
-    plan.groceryList=consolidateGroceryList(normalizeGroceryQtys(grocery.groceryList));
-    refreshSummary(plan);  // daily averages include sides
-    completeProg();
+    // The app builds the grocery list itself right away; Claude's tidier version
+    // follows in the background instead of being another minute's wait
     plan.customItems=customItems;
+    plan.groceryList=[];
+    recomputeGroceryLocal();  // also fills in the summary
+    completeProg();
     await pushPlan(plan);
-    setTimeout(function(){ renderGrocery(); },400);
+    renderPlan(plan);
+    scheduleGroceryRefresh();
   } catch(err) {
     stopProg();
     pc.innerHTML='<div class="error-card">Could not generate plan. Please try again.<br><small style="opacity:.7;margin-top:4px;display:block">'+esc(err.message)+'</small></div>';
@@ -2639,6 +2695,8 @@ function fitPlanToWeek(plan){
   plan.days=week.map(function(w,i){
     var d=(named?byName[w.name]:got[i])||{meals:[]};
     d.dayName=w.name;
+    // A day Claude left out gets empty slots, so Backfill can fill them
+    if (!d.meals||!d.meals.length) d.meals=dayMealTypes(w).map(placeholderMeal);
     if (!w.dinner){ d.meals=(d.meals||[]).filter(function(m){ return m.type!=='dinner'; }); d.noDinner=true; }
     return d;
   });
@@ -2893,6 +2951,9 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
     meal.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
     html+='</ol>';
+  } else if(mealDishes(meal).some(function(d){ return d.stepsPending; })){
+    html+='<div class="detail-label">Instructions</div><div class="srv-note" id="steps-'+di+'-'+mi+'">'
+      +(isOnline()?'Writing steps&hellip;':'Steps will be written when you&rsquo;re online.')+'</div>';
   }
   if(usesConvertedBeans(meal)) html+='<div class="prep-note batch"><span class="pn-icon">&#129752;</span><span class="pn-text">Uses home-cooked beans from your make-ahead prep instead of canned &mdash; skip draining and rinsing.</span></div>';
   if(meal.prepNote)  html+='<div class="prep-note"><span class="pn-icon">&#10052;</span><span class="pn-text">'+esc(meal.prepNote)+'</span></div>';
@@ -2906,12 +2967,13 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
       +(side.libraryId?'':'<button class="side-save" onclick="saveSideAsRecipe('+di+','+mi+','+si+')" title="Save this side to your recipes">&#x2665; Save</button>')
       +'<button class="side-del" onclick="removeSide('+di+','+mi+','+si+')" title="Remove this side">&#10005;</button></div>'
       +'<ul class="ingredients-list">'+scaleIngs(effectiveIngs(side),dispSrv).map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul>'
-      +((side.steps||[]).length?'<ol class="steps-list">'+side.steps.map(function(s,k){ return '<li><span class="step-num">'+(k+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; }).join('')+'</ol>':'')
+      +((side.steps||[]).length?'<ol class="steps-list">'+side.steps.map(function(s,k){ return '<li><span class="step-num">'+(k+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; }).join('')+'</ol>'
+        :side.stepsPending&&meal.steps&&meal.steps.length?'<div class="srv-note">Writing steps&hellip;</div>':'')
       +'</div>';
   });
 
   html+='<div class="meal-action-row">';
-  if(meal.steps&&meal.steps.length) html+='<button class="meal-act-btn sage" onclick="openCookMode(\'meal\','+di+','+mi+')">&#129489;&#8205;&#127859; Cook</button>';
+  if((meal.steps&&meal.steps.length)||meal.stepsPending) html+='<button class="meal-act-btn sage" onclick="cookMeal('+di+','+mi+')">&#129489;&#8205;&#127859; Cook</button>';
   html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+')">&#x1F504; Swap</button>';
   html+='<button class="meal-act-btn" onclick="openPicker('+di+','+mi+',true)" title="Add a side dish">&#43; Side</button>';
   if(!meal.libraryId) html+='<button class="meal-act-btn clay" id="save-btn-'+di+'-'+mi+'" onclick="saveMealAsRecipe('+di+','+mi+')">&#x2665; Save</button>';
@@ -2950,6 +3012,10 @@ function renderPlan(plan) {
   });
   pc.innerHTML=html;
   updateBackfillBar();
+  // Cards that start open (today's meals) get their steps written like opened ones
+  pc.querySelectorAll('.meal-card.open').forEach(function(card){
+    var m=/^meal-(\d+)-(\d+)$/.exec(card.id); if (m) ensureSteps(+m[1],+m[2]);
+  });
   var todayEl=document.getElementById('plan-day-today');
   if(todayEl) setTimeout(function(){ todayEl.scrollIntoView({behavior:'smooth',block:'start'}); },50);
 }
@@ -3468,12 +3534,14 @@ async function classifyRecipes(){
   showToast('Checked '+done+' recipe'+(done===1?'':'s')+(failed?' · '+failed+' failed ('+lastErr+'), try again':''));
 }
 
-function saveMealAsRecipe(di,mi){
+async function saveMealAsRecipe(di,mi){
   var meal=currentPlan.days[di].meals[mi]; if(!meal||meal.isLeftover||meal._placeholder) return;
+  await ensureSteps(di,mi);  // saved recipes need their steps
   saveDishToLibrary(meal, meal.type);
 }
-function saveSideAsRecipe(di,mi,si){
+async function saveSideAsRecipe(di,mi,si){
   var side=mealSides(currentPlan.days[di].meals[mi])[si]; if(!side) return;
+  await ensureSteps(di,mi);
   saveDishToLibrary(side, 'side');
 }
 // Save a main or side to the recipe library and link it (libraryId), so cooking
