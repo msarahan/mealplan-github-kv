@@ -91,6 +91,7 @@ recipes:{householdCode}   → Recipe[] array
   "buyAs": { "parsley": "prepped" },
   "frozenPref": { "corn": true, "pea": false },
   "swaps": [{ "from": "soy milk", "fromLabel": "soy milk", "to": "oat milk" }],
+  "householdNotes": "We shop on Friday. Kari cooks Sat, Mon and Fri...",
   "cal": "2000",
   "protein": "120",
   "carbs": "220"
@@ -100,6 +101,7 @@ Household servings arrays are indexed Mon=0 through Sun=6.
 `meals` is each day's meals in order. `id` is the meal's type everywhere (plan `meal.type`, `householdServings` keys, recipe `mealTypes`); `breakfast`/`lunch`/`dinner` keep their planning rules (leftover lunches, prep timing) whatever their `name`. `notes` describes what to suggest and goes into the planning prompts. `mealsPerDay` is still written (= `meals.length`) for older app versions; settings without `meals` are migrated from `mealsPerDay` + the old `mealNames`.
 `buyAs` maps a grocery item key (see `groceryItem()`) to `"prepped"` to buy it chopped/minced by volume; items in `BUY_FORMS` default to whole (bunch, head, count; cheese as a block; salad greens always by weight).
 `frozenPref` maps a `FREEZABLE` item key to `true` (buy frozen) or `false` (fresh); unset keeps the recipe's form, except `FROZEN_DEFAULT` items (corn, mixed berries), which default to frozen.
+`householdNotes` is free text from Configure → About your household (shopping day, who cooks when, prep time). It goes into every planning prompt via `householdRule()`: the week plan, backfill, single-meal swap, side suggestion and the freshness re-shuffle.
 `swaps` are household ingredient substitutions, started from a grocery item's ⓘ popover. `from` is a grocery key (variants like "unsweetened soy milk" match too). Adding one rewrites the current plan's and saved recipes' ingredients, steps and names. They're listed in the plan prompts (`swapsRule`) and re-applied to new plans, refilled meals and imported recipes (`applySwapsToDish`).
 
 ## Grocery consolidation
