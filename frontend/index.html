@@ -1476,8 +1476,9 @@ function groceryItem(name, unit){
   if (!form&&/\bfresh mozzarella\b/.test(n)) form='fresh';  // the ball, not the shredded bag
   n=n.replace(FORM_RE,' ');
   if (!form&&!/\bcooked\b/.test(n)&&beanType(n)) form='canned';  // ready-to-use beans come in cans
-  // So do these, however the recipe words them ("1 cup crushed tomatoes")
-  if (!form&&/\b((diced|crushed|stewed|fire[- ]roasted|whole peeled|peeled|san marzano) tomato(es)?|tomato (paste|sauce|puree)|coconut milk)\b/.test(n)) form='canned';
+  // So do these, however the recipe words them ("1 cup crushed tomatoes"). Not "diced
+  // tomatoes": that's often fresh, and canned ones come with a can ("1 (14.5 oz) can").
+  if (!form&&/\b((crushed|stewed|fire[- ]roasted|whole peeled|peeled|san marzano) tomato(es)?|tomato (paste|sauce|puree)|coconut milk)\b/.test(n)) form='canned';
   // Canned diced and crushed tomatoes are different products, so they keep their prep words
   if (form!=='canned') n=n.replace(PREP_WORDS,' ');
   n=n.replace(/[^a-z0-9&'\- ]/g,' ').replace(/\s+/g,' ').trim()
@@ -1624,6 +1625,17 @@ var BUY_FORMS=[
   // Peppers are only bought whole (no switch); chopped amounts still convert to a count
   [/bell pepper$/,                 {whole:'each',  fixed:true, tsp:{each:48}}],
   [/^jalapeno$/,                   {whole:'each',  fixed:true, tsp:{each:6}}],
+  // Produce bought whole even when recipes measure it in cups or weight: chopped or sliced
+  // yield and weight of a typical one, rounded up to whole ones (slack 0.05)
+  [/^(english|hothouse|seedless) cucumber$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:120, oz:10, lb:160}}],  // ~2 1/2 cups, 12 oz
+  [/^(persian|mini) cucumber$/,    {whole:'each', fixed:true, slack:0.05, tsp:{each:24, oz:6, lb:96}}],    // ~1/2 cup, 4 oz
+  [/^cucumber$/,                   {whole:'each', fixed:true, slack:0.05, tsp:{each:72, oz:9, lb:144}}],   // ~1 1/2 cups, 8 oz
+  [/^(zucchini|yellow squash|summer squash)$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:96, oz:14, lb:224}}],  // ~2 cups, 7 oz
+  [/^((roma|plum|vine|vine-ripened|beefsteak|heirloom) )?tomato$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:36, oz:7, lb:112}}],  // ~3/4 cup, 5 oz
+  [/^avocado$/,                    {whole:'each', fixed:true, slack:0.05, tsp:{each:36, oz:6, lb:96}}],    // ~3/4 cup, 6 oz
+  [/^sweet potato$/,               {whole:'each', fixed:true, slack:0.05, tsp:{each:72, oz:14, lb:224}}],  // ~1 1/2 cups, 5 oz
+  [/^((russet|yukon gold|gold|red|white) )?potato$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:60, oz:10, lb:160}}],  // ~1 1/4 cups, 6 oz
+  [/^((granny smith|honeycrisp|gala|fuji|red|green) )?apple$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:48, oz:8, lb:128}}],  // ~1 cup, 6 oz
   // Crumbled cheeses are sold by weight only: 1 cup crumbled ~ 5 oz
   [new RegExp('^('+CRUMBLE_CHEESES+'|goat cheese|blue cheese)$'), {whole:'oz', fixed:true, tsp:{oz:9.6, lb:154}}],
   // Cheese: a block by weight, or shredded/grated by volume (4 oz ~ 1 cup shredded, 3 oz ~ 1 cup grated)
