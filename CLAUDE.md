@@ -41,6 +41,7 @@ All endpoints return JSON with CORS headers (`Access-Control-Allow-Origin: *`).
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/app-version` | Current deployment id (`CF_VERSION_METADATA`); the page reloads itself when it changes |
 | GET | `/plan/:code` | Load shared meal plan (30 day TTL) |
 | PUT | `/plan/:code` | Save meal plan |
 | GET | `/checks/:code` | Load grocery check-off state |
