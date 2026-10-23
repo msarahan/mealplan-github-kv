@@ -343,6 +343,8 @@ body.cooking #app{display:none}
 .export-btn.primary{background:var(--sage-light);color:var(--sage-dark);border-color:var(--sage-mid)}
 .grocery-section{margin-bottom:14px}
 .grocery-cat-label{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-light);margin-bottom:6px;display:flex;align-items:center;gap:4px}
+.grocery-sub-label{font-size:11px;color:var(--ink-light);margin:10px 0 5px 2px;font-style:italic}
+.grocery-cat-label+.grocery-sub-label{margin-top:2px}
 .cat-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block}
 .grocery-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--white);border:1px solid var(--sand-dark);border-radius:var(--radius-sm);margin-bottom:4px;cursor:pointer}
 .grocery-item.done{opacity:.4}
@@ -1352,7 +1354,8 @@ var GROCERY_SYNONYMS={
   'parmigiano reggiano':'parmesan','parmigiano-reggiano':'parmesan','parmigiano':'parmesan',
   'corn kernel':'corn','corn on the cob':'corn','sweet corn':'corn','ear corn':'corn',
   'napa cabbage':'cabbage','green cabbage':'cabbage','chinese cabbage':'cabbage','savoy cabbage':'cabbage',
-  'broccoli floret':'broccoli','broccoli crown':'broccoli','broccoli head':'broccoli'
+  'broccoli floret':'broccoli','broccoli crown':'broccoli','broccoli head':'broccoli',
+  'grape tomato':'cherry tomato'
 };
 function singular(w){
   if (/(ss|us|is)$/.test(w)) return w;
@@ -1360,6 +1363,12 @@ function singular(w){
   if (/ies$/.test(w)) return w.replace(/ies$/,'y');
   if (/(oes|ches|shes|xes)$/.test(w)) return w.replace(/es$/,'');
   return w.replace(/s$/,'');
+}
+// "scallion" → "scallions", "cherry tomato" → "cherry tomatoes", "berry" → "berries"
+function pluralWord(w){
+  if (/[^aeiou]y$/.test(w)) return w.slice(0,-1)+'ies';
+  if (/(o|ch|sh|x)$/.test(w)) return w+'es';
+  return w+'s';
 }
 function capFirst(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 // {key, name} for an ingredient name (unit helps read a bare "pepper"); null if empty
@@ -1391,7 +1400,7 @@ function groceryItem(name, unit){
   base=syn||base.replace(/^(cilantro|parsley|basil|mint|thyme|oregano|rosemary|sage|dill|tarragon) (leaf|leave|sprig|stem)$/,'$1');
   if (base==='pepper'&&(!unit||/^(tsp|tbsp|pinch|dash)$/i.test(unit))) base='black pepper';
   // A synonym shows its common name, plural if the recipe's was ("green onions" → "scallions")
-  var shown=base===words.join(' ')?n:base+(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan|cabbage|broccoli)$/.test(base)?'s':'');
+  var shown=base===words.join(' ')?n:(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan|cabbage|broccoli)$/.test(base)?pluralWord(base):base);
   if (chile) base=chile[1];  // "jalapeño peppers" and "jalapeños" are one item; the name reads as written
   return {key:(form?form+' ':'')+base, name:capFirst((form?form+' ':'')+shown)};
 }
@@ -1555,6 +1564,38 @@ function toggleFrozen(k, nowFrozen, evt){
   evt.stopPropagation();
   frozenPref[k]=!nowFrozen;
   saveSettings(); renderGrocery();
+}
+
+// ── Store sections ────────────────────────────────────────────────────────────
+// Produce is split the way the store shelves it; the first match wins, and items
+// bought prepped (chopped herbs, broccoli by weight, shredded cabbage) are in the
+// cut & bagged section. Every section is sorted by name.
+var PRODUCE_SECTIONS=[
+  {label:'Onions, garlic & potatoes', re:/\b(onion|garlic|shallot|scallion|potato|yam|ginger)\b/},
+  {label:'Cut & bagged', re:/\b(spinach|arugula|spring mix|mixed green|salad green|salad mix|slaw|coleslaw)\b/},
+  {label:'Fruit, tomatoes & avocados', re:/\b(lemon|lime|orange|grapefruit|apple|banana|berry|blueberry|strawberry|raspberry|blackberry|grape|pear|peach|nectarine|plum|mango|pineapple|melon|cantaloupe|watermelon|kiwi|cherry|pomegranate|avocado|tomato|tomatillo)\b/},
+  {label:'Vegetables & herbs', re:/\b(pepper|cabbage|carrot|cilantro|parsley|basil|mint|dill|thyme|rosemary|oregano|sage|tarragon|chive|broccoli|broccolini|cauliflower|celery|kale|chard|collard|lettuce|romaine|cucumber|zucchini|squash|eggplant|jalapeno|serrano|poblano|habanero|chile|green bean|asparagus|brussels sprout|leek|fennel|radish|beet|corn|pea|mushroom|okra|bok choy|artichoke|turnip|parsnip)\b/}
+];
+var PRODUCE_SECTION_ORDER=['Vegetables & herbs','Cut & bagged','Onions, garlic & potatoes','Fruit, tomatoes & avocados','Other produce'];
+function produceSection(item){
+  var gi=groceryItem(item.name); if (!gi) return 'Other produce';
+  var f=buyForm(gi.key);
+  if (f&&!f.fixed&&buyAs[gi.key]==='prepped') return 'Cut & bagged';
+  for (var i=0;i<PRODUCE_SECTIONS.length;i++) if (PRODUCE_SECTIONS[i].re.test(gi.key)) return PRODUCE_SECTIONS[i].label;
+  return 'Other produce';
+}
+// [{label, items}] for one category: Produce by section, others as one sorted list
+function grocerySections(cat, items){
+  var byName=function(a,b){ return String(a.name).localeCompare(String(b.name)); };
+  if (cat!=='Produce') return [{label:null, items:items.slice().sort(byName)}];
+  // Produce sorts by the main word, so varieties sit together: green and red bell
+  // peppers, cherry tomatoes with tomatoes, sweet potatoes with potatoes
+  var sortKey=function(it){ var gi=groceryItem(it.name), k=gi?gi.key:String(it.name).toLowerCase(); return k.split(' ').pop()+' '+k; };
+  var byNoun=function(a,b){ return sortKey(a).localeCompare(sortKey(b)); };
+  var by={};
+  items.forEach(function(it){ var s=produceSection(it); (by[s]=by[s]||[]).push(it); });
+  return PRODUCE_SECTION_ORDER.filter(function(s){ return by[s]; })
+    .map(function(s){ return {label:s, items:by[s].sort(byNoun)}; });
 }
 
 // Claude's list can still name one item twice ("Garlic" and "Garlic cloves") or keep
@@ -2760,7 +2801,9 @@ function renderGrocery() {
     +'</div>';
   allCats.forEach(function(c){
     html+='<div class="grocery-section"><div class="grocery-cat-label"><span class="cat-dot" style="background:'+(CAT_DOT[c]||'#5a5a5a')+'"></span>'+esc(c)+'</div>';
-    byCategory[c].forEach(function(item){
+    grocerySections(c,byCategory[c]).forEach(function(sec){
+      if (sec.label) html+='<div class="grocery-sub-label">'+esc(sec.label)+'</div>';
+      sec.items.forEach(function(item){
       var id='gi-'+ingKey(item.name), done=checkedItems.has(id);
       var srcBtn='';
       if(item.sources&&item.sources.length){
@@ -2779,6 +2822,7 @@ function renderGrocery() {
       html+='<div class="grocery-item'+(done?' done':'')+'" data-item-id="'+id+'" onclick="toggleGroceryItem(this)">'
         +'<div class="gi-check">'+(done?'\u2713':'')+'</div>'
         +'<span class="gi-name">'+esc(item.name)+'</span><span class="gi-qty">'+esc(buyAsQty(item)||'')+'</span>'+formBtn+srcBtn+'</div>';
+      });
     });
     html+='</div>';
   });
@@ -2815,7 +2859,14 @@ function getGroceryText(){
   var allCats=CAT_ORDER.filter(function(c){return byCategory[c];});
   Object.keys(byCategory).forEach(function(c){ if(allCats.indexOf(c)<0) allCats.push(c); });
   var text='GROCERY LIST - '+planDays+'-day Nourish plan\n\n';
-  allCats.forEach(function(c){ text+=c.toUpperCase()+'\n'; byCategory[c].forEach(function(item){ var q=buyAsQty(item); text+='  - '+item.name+(q?' ('+q+')':'')+'\n'; }); text+='\n'; });
+  allCats.forEach(function(c){
+    text+=c.toUpperCase()+'\n';
+    grocerySections(c,byCategory[c]).forEach(function(sec){
+      if (sec.label) text+='  '+sec.label+'\n';
+      sec.items.forEach(function(item){ var q=buyAsQty(item); text+='  - '+item.name+(q?' ('+q+')':'')+'\n'; });
+    });
+    text+='\n';
+  });
   if(customItems.length){ text+='ADDED BY YOU\n'; customItems.forEach(function(item){ text+='  - '+item.name+(item.qty?' ('+item.qty+')':'')+'\n'; }); }
   return text;
 }
