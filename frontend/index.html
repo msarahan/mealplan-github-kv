@@ -1210,7 +1210,7 @@ function parseIng(str) {
   var qty=(whole+frac)||null, unit=m[3]||'', rest=(m[4]||'').replace(/^[.,]\s*/,'');  // "2 tbsp. oil", "2 cups, packed spinach"
   // Handle multi-word unit "fl oz"
   if (unit.toLowerCase()==='fl' && /^oz\b/i.test(rest)) { unit='fl oz'; rest=rest.replace(/^oz\s*/i,''); }
-  var known=['cup','cups','tbsp','tsp','oz','fl oz','lb','lbs','pound','pounds','quart','quarts','pint','pints','gallon','gallons','can','cans','bunch','bunches','head','heads','clove','cloves','slice','slices','piece','pieces','pinch','dash','stick','sticks','sprig','sprigs','stalk','stalks','handful','handfuls','ear','ears','pkg','package','bag','jar','bottle'];
+  var known=['cup','cups','tbsp','tsp','oz','fl oz','lb','lbs','pound','pounds','quart','quarts','pint','pints','gallon','gallons','can','cans','bunch','bunches','head','heads','clove','cloves','slice','slices','piece','pieces','pinch','dash','stick','sticks','sprig','sprigs','stalk','stalks','handful','handfuls','ear','ears','crown','crowns','pkg','package','bag','jar','bottle'];
   // A size before the unit describes the unit: "1 small bunch cilantro" is 1 bunch
   var sized=/^(small|medium|large)$/i.test(unit)&&rest.match(/^([a-zA-Z]+)\s*(.*)/);
   if (sized&&known.indexOf(sized[1].toLowerCase())>=0){ unit=sized[1]; rest=sized[2]; }
@@ -1261,7 +1261,7 @@ function scaleIngs(ings, srv) {
     var p=parseIng(ing); if(!p.qty) return ing;
     var q=p.qty*srv, unit=p.unit;
     // Countable units read naturally at the scaled amount: "4 cloves", "1 cup", "2 bunches"
-    var countable=/^(cup|clove|can|head|slice|piece|stick|bunch|sprig|stalk|handful|ear|pint|quart|gallon|bag|jar|bottle)(es|s)?$/i;
+    var countable=/^(cup|clove|can|head|slice|piece|stick|bunch|sprig|stalk|handful|ear|crown|pint|quart|gallon|bag|jar|bottle)(es|s)?$/i;
     var cm=unit.match(countable);
     if (cm) unit=pluralUnit(cm[1],q);
     return (fmtQty(q)||'')+(unit?' '+unit:'')+' '+p.rest;
@@ -1326,7 +1326,7 @@ function ingKey(name){ return name.toLowerCase().replace(/^(a |an |the |fresh |d
 var VOL_TSP={tsp:1,teaspoon:1,teaspoons:1,tbsp:3,tablespoon:3,tablespoons:3,'fl oz':6,cup:48,cups:48};
 var WT_OZ={oz:1,ounce:1,ounces:1,lb:16,lbs:16,pound:16,pounds:16};
 var UNIT_ALIAS={cloves:'clove',cans:'can',heads:'head',slices:'slice',pieces:'piece',sticks:'stick',quarts:'quart',pints:'pint',gallons:'gallon',package:'pkg',
-  bunches:'bunch',sprigs:'sprig',stalks:'stalk',handfuls:'handful',ears:'ear'};
+  bunches:'bunch',sprigs:'sprig',stalks:'stalk',handfuls:'handful',ears:'ear',crowns:'crown'};
 // Pick the measure that reads cleanly: 4 tsp stays "4 tsp", 6 tsp is "2 tbsp", 24 tsp is "1/2 cup"
 function fmtVolume(tsp){
   var clean=function(x,dens){ return dens.some(function(d){ return Math.abs(x*d-Math.round(x*d))<0.01; }); };
@@ -1387,7 +1387,7 @@ function groceryItem(name, unit){
   n=n.replace(/[^a-z0-9&'\- ]/g,' ').replace(/\s+/g,' ').trim()
     .replace(/^(a|an|the|of) /,'')
     // A measure left in the name ("a bunch of cilantro", "small bunch cilantro")
-    .replace(/^(bunch|bunches|bunchs|sprigs?|handfuls?|stalks?|heads?|cloves?|pinch|dash)( of)? (?=\S)/,'')
+    .replace(/^(bunch|bunches|bunchs|sprigs?|handfuls?|stalks?|heads?|crowns?|cloves?|pinch|dash)( of)? (?=\S)/,'')
     // Varieties that are one item: Italian parsley, baby spinach
     .replace(/\b(italian|flat[- ]leaf|curly)\s+(parsley)\b/,'$2')
     .replace(/\bbaby\s+(spinach|kale|arugula)\b/,'$1');
@@ -1410,20 +1410,25 @@ var SALT_PEPPER_RE=/\bsalt\s*(and|&|\+|\/)\s*([a-z-]+\s+){0,3}pepper\b/i;
 // "salt and pepper to taste" is two items
 // "Juice of", "zest and juice from", ... followed by the fruit
 var CITRUS_OF_RE=/^\s*(?:the\s+)?(?:juice|zest)(?:\s+(?:and|&)\s+(?:juice|zest))?\s+(?:of|from)\s+/i;
+// "A squeeze of lemon", "2 squeezes of fresh lime juice": half a fruit per squeeze
+var SQUEEZE_RE=/^\s*(?:(\d+)\s+|an?\s+)?squeezes?\s+of\s+(?:fresh\s+)?(lemon|lime|orange)s?\b/i;
+function isCitrusPhrase(i){ return CITRUS_OF_RE.test(i)||SQUEEZE_RE.test(i); }
 function citrusFruitText(i){
+  var sq=SQUEEZE_RE.exec(i);
+  if (sq) return fmtQty((sq[1]?+sq[1]:1)/2)+' '+sq[2].toLowerCase();
   return String(i).replace(CITRUS_OF_RE,'').replace(/^half\s+(?:an?\s+)?/i,'1/2 ')
     .replace(/^(\d)\s+(\d)\s+(?=(?:lemon|lime|orange))/i,'$1/$2 ');  // saved "of 1 2 lime" lost its slash
 }
 function groceryIngs(ings){
   return [].concat.apply([],ings.map(function(i){
-    if (CITRUS_OF_RE.test(i)) i=citrusFruitText(i);
+    if (isCitrusPhrase(i)) i=citrusFruitText(i);
     return SALT_PEPPER_RE.test(i)?['salt','black pepper']:[i];
   }));
 }
 // Claude's "Juice of 1/2 lime" or "Lime juice | 3 tbsp" is limes to buy (counted in buyAsQty)
 function citrusItem(item){
   var name=String(item.name), qty=item.qty;
-  if (CITRUS_OF_RE.test(name)){
+  if (isCitrusPhrase(name)){
     var p=parseIng(citrusFruitText(name));
     if (p.qty&&/^(lemon|lime|orange)s?\b/i.test(p.rest)){
       // A bare count is how many of that amount ("Juice of 1/2 lime" x 2 = 1 lime); a juice volume stays
@@ -1492,7 +1497,9 @@ var BUY_FORMS=[
   [/^cabbage$/,  {whole:'head',  prep:'shredded', alt:'weight', suffix:'shredded', tsp:{head:480, each:480, oz:19, lb:304}}],
   // Lemons and limes are bought whole: juice amounts become fruit (~3 tbsp a lemon, 2 a lime)
   [/^lemon$/,    {whole:'each', fixed:true, slack:0.05, tsp:{each:9}}],
-  [/^lime$/,     {whole:'each', fixed:true, slack:0.05, tsp:{each:6}}]
+  [/^lime$/,     {whole:'each', fixed:true, slack:0.05, tsp:{each:6}}],
+  // Cherry/grape tomatoes are sold in oz containers: 1 cup ~ 5 1/3 oz, a pint ~ 10 2/3 oz, one ~ 1/2 oz
+  [/^cherry tomato$/, {whole:'oz', fixed:true, ozOnly:true, tsp:{oz:9, lb:144, pint:96, each:4.5}}]
 ];
 function buyForm(key){
   for (var i=0;i<BUY_FORMS.length;i++) if (BUY_FORMS[i][0].test(key)) return BUY_FORMS[i][1];
@@ -1502,6 +1509,13 @@ function buyForm(key){
 // when it can't be converted (a weight, a unit with no known size)
 function buyAsQty(item){
   var gi=item.name&&groceryItem(item.name), f=gi&&buyForm(gi.key);
+  // Other produce counted by the piece rounds up: you can't buy half a cucumber
+  if (!f&&item.qty&&item.category==='Produce'){
+    return String(item.qty).split(/\s*\+\s*/).map(function(part){
+      var p=parseIng(part);
+      return p.qty&&!p.unit?Math.ceil(p.qty-1e-6)+(p.rest?' '+p.rest:''):part;
+    }).join(' + ');
+  }
   if (!f||!item.qty) return item.qty;
   var tsp=0, ok=String(item.qty).split(/\s*\+\s*/).every(function(part){
     var p=parseIng(part), u=(p.unit||'').toLowerCase(); u=UNIT_ALIAS[u]||u;
@@ -1516,7 +1530,11 @@ function buyAsQty(item){
   if (buyAs[gi.key]==='prepped'&&f.alt==='weight') return fmtWeight(Math.ceil(tsp/f.tsp.oz/4-0.05)*4)+(f.suffix?' '+f.suffix:'');
   // Prepped rounds up to a measure you'd buy or scoop: 1/4 cups, else tbsp
   if (buyAs[gi.key]==='prepped'&&!f.fixed) return fmtVolume(tsp>=12?Math.ceil(tsp/12-0.05)*12:Math.ceil(tsp/3-0.05)*3)+' '+f.prep;
-  if (WT_OZ[f.whole]) return fmtWeight(Math.ceil(tsp/f.tsp[f.whole]-0.05))+(f.label?' '+f.label:'');
+  if (WT_OZ[f.whole]){
+    var oz=Math.ceil(tsp/f.tsp[f.whole]-0.05);
+    if (oz>16&&!f.ozOnly) oz=Math.ceil(oz/4)*4;  // over a pound: to the next 1/4 lb
+    return (f.ozOnly?oz+' oz':fmtWeight(oz))+(f.label?' '+f.label:'');
+  }
   // Sizes vary: a little over still fits in what you bought (lemons and limes: exact)
   var n=Math.ceil(tsp/f.tsp[f.whole]-(f.slack!=null?f.slack:0.25));
   return Math.max(1,n)+(f.whole==='each'?'':' '+pluralUnit(f.whole,n));
