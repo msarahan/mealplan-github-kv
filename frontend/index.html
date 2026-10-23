@@ -1403,6 +1403,7 @@ function groceryItem(name, unit){
   var syn=GROCERY_SYNONYMS[base];
   base=syn||base.replace(/^(cilantro|parsley|basil|mint|thyme|oregano|rosemary|sage|dill|tarragon) (leaf|leave|sprig|stem)$/,'$1');
   if (base==='pepper'&&(!unit||/^(tsp|tbsp|pinch|dash)$/i.test(unit))) base='black pepper';
+  if (form==='canned'&&base==='chicken breast') base='chicken';  // canned chicken is breast meat either way
   // A synonym shows its common name, plural if the recipe's was ("green onions" → "scallions")
   var shown=base===words.join(' ')?n:(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan|cabbage|broccoli)$/.test(base)?pluralWord(base):base);
   if (chile) base=chile[1];  // "jalapeño peppers" and "jalapeños" are one item; the name reads as written
@@ -1522,10 +1523,17 @@ function buyForm(key){
 // The qty to show for an item in the household's chosen form, or its qty as listed
 // when it can't be converted (a weight, a unit with no known size)
 // Canned goods are bought by the can: [what, can size, cups per can drained/poured]
-var CAN_SIZES=[[/\btomato/, '14.5 oz', 1.75], [/\btomato paste\b/, '6 oz', 2/3], [/\bcoconut milk\b/, '13.5 oz', 5/3]];  // last match wins
+var CAN_SIZES=[[/\btomato/, '14.5 oz', 1.75], [/\btomato paste\b/, '6 oz', 2/3], [/\bcoconut milk\b/, '13.5 oz', 5/3],
+  [/\bchicken\b/, '12.5 oz', 1.75]];  // last match wins
 var CAN_DEFAULT=['15 oz', 1.5];  // beans, chickpeas, corn, ...
 // "2 cups" chickpeas → "2 (15 oz) cans"; null when an amount can't be converted
 function cannedQty(key, qty){
+  var c=cannedCups(key, qty); if (!c) return null;
+  var n=Math.max(1,Math.ceil(c.total/c.cups-0.1));
+  return n+' ('+c.size+') '+(n>1?'cans':'can');
+}
+// {total cups, can size, cups per can} for a canned item's qty; null if it can't be converted
+function cannedCups(key, qty){
   var size=CAN_DEFAULT[0], cups=CAN_DEFAULT[1];
   CAN_SIZES.forEach(function(c){ if (c[0].test(key)){ size=c[1]; cups=c[2]; } });
   var sizeOz=parseFloat(size), total=0;
@@ -1541,15 +1549,52 @@ function cannedQty(key, qty){
     return true;
   });
   if (!ok||!total) return null;
-  var n=Math.max(1,Math.ceil(total/cups-0.1));
-  return n+' ('+size+') '+(n>1?'cans':'can');
+  return {total:total, size:size, cups:cups};
+}
+
+// ── Canned or fresh-cooked ───────────────────────────────────────────────────
+// Canned chicken can be swapped for raw chicken breast to cook and shred: the list
+// shows the raw weight that cooks down to the same amount (1 cup cooked ~ 5 oz; raw
+// cooks down to ~75%). It only changes what's shown (buyAs[key]='fresh'): the saved
+// list keeps the canned amount, so switching back is exact.
+var CANNED_TO_FRESH=[[/^canned chicken( breast)?$/, {name:'Chicken breast', ozPerCup:5, cookedYield:0.75}]];
+function cannedSwap(key){
+  for (var i=0;i<CANNED_TO_FRESH.length;i++) if (CANNED_TO_FRESH[i][0].test(key)) return CANNED_TO_FRESH[i][1];
+  return null;
+}
+function freshFromCanned(item){
+  var gi=item.name&&groceryItem(item.name), sw=gi&&cannedSwap(gi.key);
+  if (!sw||buyAs[gi.key]!=='fresh'||!item.qty) return null;
+  var c=cannedCups(gi.key,item.qty); if (!c) return null;
+  var oz=Math.ceil(c.total*sw.ozPerCup/sw.cookedYield/4-0.05)*4;  // raw, to the next 1/4 lb
+  return Object.assign({},item,{name:sw.name+' (cook & shred)', qty:fmtWeight(oz), category:'Protein', _swapKey:gi.key});
+}
+// The list as shown: canned items the household buys fresh are swapped in, merged
+// with any line already buying that (more chicken breast)
+function groceryView(list){
+  var rest=[], swapped=[];
+  list.forEach(function(item){ var v=freshFromCanned(item); if (v) swapped.push(v); else rest.push(item); });
+  swapped.forEach(function(v){
+    var k=groceryItem(v.name).key;
+    for (var i=0;i<rest.length;i++){
+      var gi=rest[i].name&&groceryItem(rest[i].name);
+      if (gi&&gi.key===k){ rest[i]=Object.assign({},rest[i],{qty:combineQtys(rest[i].qty,v.qty), _swapKey:v._swapKey}); return; }
+    }
+    rest.push(v);
+  });
+  return rest;
+}
+function toggleCannedFresh(key, evt){
+  evt.stopPropagation();
+  if (buyAs[key]==='fresh') delete buyAs[key]; else buyAs[key]='fresh';
+  saveSettings(); renderGrocery();
 }
 // Names as shown: canned goods are listed under Canned & Preserved, so "Canned" comes off
-// when the rest still says what to buy ("Chickpeas", "Diced tomatoes"), but stays on a
-// name that would read as fresh produce ("Canned tomatoes", "Canned corn")
+// when the rest is itself a canned good ("Chickpeas", "Diced tomatoes"), but stays on a
+// name that would read as fresh ("Canned tomatoes", "Canned corn", "Canned chicken")
 function groceryDisplayName(item){
   var name=String(item.name), rest=name.replace(/^canned\s+/i,'');
-  if (rest===name||guessCategory(rest)==='Produce') return name;
+  if (rest===name||guessCategory(rest)!=='Canned & Preserved') return name;
   return rest.charAt(0).toUpperCase()+rest.slice(1);
 }
 function buyAsQty(item){
@@ -2867,7 +2912,7 @@ function renderGrocery() {
   // Lists saved before consolidation (or by older app versions) get cleaned up on display
   if (currentPlan&&currentPlan.groceryList) currentPlan.groceryList=consolidateGroceryList(currentPlan.groceryList);
   enrichGroceryWithSources(currentPlan);
-  var list=(currentPlan&&currentPlan.groceryList)?currentPlan.groceryList:[];
+  var list=groceryView((currentPlan&&currentPlan.groceryList)?currentPlan.groceryList:[]);
   var custom=customItems;
   var byCategory={};
   list.forEach(function(item){ var c=item.category||'Other'; if(!byCategory[c]) byCategory[c]=[]; byCategory[c].push(item); });
@@ -2904,6 +2949,12 @@ function renderGrocery() {
         var prepped=buyAs[gi.key]==='prepped', other=prepped?(f.label||(f.whole==='each'?'whole':f.whole)):f.prep;
         formBtn+='<button class="gi-form" onclick="toggleBuyAs(\''+esc(gi.key)+'\',event)" title="Buy '+esc(other)+' instead">&#8644; '+esc(other)+'</button>';
       }
+      // Canned chicken ⇄ fresh chicken breast to cook
+      var swapKey=item._swapKey||(gi&&cannedSwap(gi.key)?gi.key:null);
+      if (swapKey){
+        var toWhat=item._swapKey?'canned':'fresh';
+        formBtn+='<button class="gi-form" onclick="toggleCannedFresh(\''+esc(swapKey)+'\',event)" title="Buy '+toWhat+' instead">&#8644; '+toWhat+'</button>';
+      }
       html+='<div class="grocery-item'+(done?' done':'')+'" data-item-id="'+id+'" onclick="toggleGroceryItem(this)">'
         +'<div class="gi-check">'+(done?'\u2713':'')+'</div>'
         +'<span class="gi-name">'+esc(groceryDisplayName(item))+'</span><span class="gi-qty">'+esc(buyAsQty(item)||'')+'</span>'+formBtn+srcBtn+'</div>';
@@ -2938,7 +2989,7 @@ function setGroceryStatus(state,text){
 }
 
 function getGroceryText(){
-  var list=(currentPlan&&currentPlan.groceryList)?currentPlan.groceryList:[];
+  var list=groceryView((currentPlan&&currentPlan.groceryList)?currentPlan.groceryList:[]);
   var byCategory={};
   list.forEach(function(item){ var c=item.category||'Other'; if(!byCategory[c]) byCategory[c]=[]; byCategory[c].push(item); });
   var allCats=CAT_ORDER.filter(function(c){return byCategory[c];});
