@@ -1632,16 +1632,17 @@ var BUY_FORMS=[
   [/bell pepper$/,                 {whole:'each',  fixed:true, tsp:{each:48}}],
   [/^jalapeno$/,                   {whole:'each',  fixed:true, tsp:{each:6}}],
   // Produce bought whole even when recipes measure it in cups or weight: chopped or sliced
-  // yield and weight of a typical one, rounded up to whole ones (slack 0.05)
-  [/^(english|hothouse|seedless) cucumber$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:120, oz:10, lb:160}}],  // ~2 1/2 cups, 12 oz
-  [/^(persian|mini) cucumber$/,    {whole:'each', fixed:true, slack:0.05, tsp:{each:24, oz:6, lb:96}}],    // ~1/2 cup, 4 oz
-  [/^cucumber$/,                   {whole:'each', fixed:true, slack:0.05, tsp:{each:72, oz:9, lb:144}}],   // ~1 1/2 cups, 8 oz
-  [/^(zucchini|yellow squash|summer squash)$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:96, oz:14, lb:224}}],  // ~2 cups, 7 oz
-  [/^((roma|plum|vine|vine-ripened|beefsteak|heirloom) )?tomato$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:36, oz:7, lb:112}}],  // ~3/4 cup, 5 oz
-  [/^avocado$/,                    {whole:'each', fixed:true, slack:0.05, tsp:{each:36, oz:6, lb:96}}],    // ~3/4 cup, 6 oz
-  [/^sweet potato$/,               {whole:'each', fixed:true, slack:0.05, tsp:{each:72, oz:14, lb:224}}],  // ~1 1/2 cups, 5 oz
-  [/^((russet|yukon gold|gold|red|white) )?potato$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:60, oz:10, lb:160}}],  // ~1 1/4 cups, 6 oz
-  [/^((granny smith|honeycrisp|gala|fuji|red|green) )?apple$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:48, oz:8, lb:128}}],  // ~1 cup, 6 oz
+  // yield and weight of a typical one as sold in stores (bigger than USDA "medium"),
+  // rounded up to whole ones (slack 0.05). tsp per oz = each / weight in oz.
+  [/^(english|hothouse|seedless) cucumber$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:144, oz:144/14, lb:144/14*16}}],  // ~3 cups, 14 oz
+  [/^(persian|mini) cucumber$/,    {whole:'each', fixed:true, slack:0.05, tsp:{each:24, oz:6, lb:96}}],      // ~1/2 cup, 4 oz
+  [/^cucumber$/,                   {whole:'each', fixed:true, slack:0.05, tsp:{each:84, oz:8.4, lb:134.4}}],  // ~1 3/4 cups, 10 oz
+  [/^(zucchini|yellow squash|summer squash)$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:96, oz:12, lb:192}}],  // ~2 cups, 8 oz
+  [/^((roma|plum|vine|vine-ripened|beefsteak|heirloom) )?tomato$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:48, oz:8, lb:128}}],  // ~1 cup, 6 oz
+  [/^avocado$/,                    {whole:'each', fixed:true, slack:0.05, tsp:{each:36, oz:36/7, lb:36/7*16}}],  // ~3/4 cup, 7 oz
+  [/^sweet potato$/,               {whole:'each', fixed:true, slack:0.05, tsp:{each:120, oz:10, lb:160}}],    // ~2 1/2 cups, 12 oz
+  [/^((russet|yukon gold|gold|red|white) )?potato$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:72, oz:9, lb:144}}],  // ~1 1/2 cups, 8 oz
+  [/^((granny smith|honeycrisp|gala|fuji|red|green) )?apple$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:60, oz:60/7, lb:60/7*16}}],  // ~1 1/4 cups, 7 oz
   // Crumbled cheeses are sold by weight only: 1 cup crumbled ~ 5 oz
   [new RegExp('^('+CRUMBLE_CHEESES+'|goat cheese|blue cheese)$'), {whole:'oz', fixed:true, tsp:{oz:9.6, lb:154}}],
   // Cheese: a block by weight, or shredded/grated by volume (4 oz ~ 1 cup shredded, 3 oz ~ 1 cup grated)
