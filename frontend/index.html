@@ -1350,7 +1350,9 @@ var GROCERY_SYNONYMS={
   'kosher salt':'salt','sea salt':'salt','table salt':'salt','fine salt':'salt','flaky salt':'salt',
   'ground black pepper':'black pepper','ground pepper':'black pepper','egg yolk':'egg','egg white':'egg',
   'parmigiano reggiano':'parmesan','parmigiano-reggiano':'parmesan','parmigiano':'parmesan',
-  'corn kernel':'corn','corn on the cob':'corn','sweet corn':'corn','ear corn':'corn'
+  'corn kernel':'corn','corn on the cob':'corn','sweet corn':'corn','ear corn':'corn',
+  'napa cabbage':'cabbage','green cabbage':'cabbage','chinese cabbage':'cabbage','savoy cabbage':'cabbage',
+  'broccoli floret':'broccoli','broccoli crown':'broccoli','broccoli head':'broccoli'
 };
 function singular(w){
   if (/(ss|us|is)$/.test(w)) return w;
@@ -1364,7 +1366,9 @@ function capFirst(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 function groceryItem(name, unit){
   // Accents off so "jalapeño" and "jalapeno" match (and ñ isn't lost to the cleanup below)
   var n=String(name).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase()
-    .replace(/\([^)]*\)/g,' ').split(',')[0].split(/\s+or\s+/)[0];
+    .replace(/\([^)]*\)/g,' ').split(',')[0].split(/\s+or\s+/)[0]
+    // Saved by older versions that split "jalapeño" at the ñ
+    .replace(/\bjalape(?:\s+n|n\s+|\s+)o(?=s?\b)/g,'jalapeno');
   var fm=n.match(FORM_RE), form=fm?fm[2]:/^(\(.*\) )?cans?$/i.test(unit||'')?'canned':'';
   if (!form&&/\bfresh mozzarella\b/.test(n)) form='fresh';  // the ball, not the shredded bag
   n=n.replace(FORM_RE,' ');
@@ -1387,7 +1391,7 @@ function groceryItem(name, unit){
   base=syn||base.replace(/^(cilantro|parsley|basil|mint|thyme|oregano|rosemary|sage|dill|tarragon) (leaf|leave|sprig|stem)$/,'$1');
   if (base==='pepper'&&(!unit||/^(tsp|tbsp|pinch|dash)$/i.test(unit))) base='black pepper';
   // A synonym shows its common name, plural if the recipe's was ("green onions" → "scallions")
-  var shown=base===words.join(' ')?n:base+(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan)$/.test(base)?'s':'');
+  var shown=base===words.join(' ')?n:base+(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan|cabbage|broccoli)$/.test(base)?'s':'');
   if (chile) base=chile[1];  // "jalapeño peppers" and "jalapeños" are one item; the name reads as written
   return {key:(form?form+' ':'')+base, name:capFirst((form?form+' ':'')+shown)};
 }
@@ -1395,11 +1399,34 @@ function groceryItem(name, unit){
 var SALT_PEPPER_RE=/\bsalt\s*(and|&|\+|\/)\s*([a-z-]+\s+){0,3}pepper\b/i;
 // Recipe wording that hides what to buy: "juice of 1 lemon" is a lemon,
 // "salt and pepper to taste" is two items
+// "Juice of", "zest and juice from", ... followed by the fruit
+var CITRUS_OF_RE=/^\s*(?:the\s+)?(?:juice|zest)(?:\s+(?:and|&)\s+(?:juice|zest))?\s+(?:of|from)\s+/i;
+function citrusFruitText(i){
+  return String(i).replace(CITRUS_OF_RE,'').replace(/^half\s+(?:an?\s+)?/i,'1/2 ')
+    .replace(/^(\d)\s+(\d)\s+(?=(?:lemon|lime|orange))/i,'$1/$2 ');  // saved "of 1 2 lime" lost its slash
+}
 function groceryIngs(ings){
   return [].concat.apply([],ings.map(function(i){
-    i=String(i).replace(/^\s*(?:the\s+)?(?:juice|zest)(?:\s+and\s+(?:juice|zest))?\s+of\s+/i,'');
+    if (CITRUS_OF_RE.test(i)) i=citrusFruitText(i);
     return SALT_PEPPER_RE.test(i)?['salt','black pepper']:[i];
   }));
+}
+// Claude's "Juice of 1/2 lime" or "Lime juice | 3 tbsp" is limes to buy (counted in buyAsQty)
+function citrusItem(item){
+  var name=String(item.name), qty=item.qty;
+  if (CITRUS_OF_RE.test(name)){
+    var p=parseIng(citrusFruitText(name));
+    if (p.qty&&/^(lemon|lime|orange)s?\b/i.test(p.rest)){
+      // A bare count is how many of that amount ("Juice of 1/2 lime" x 2 = 1 lime); a juice volume stays
+      var pq=qty?parseIng(String(qty)):{};
+      name=p.rest;
+      if (!pq.qty) qty=fmtQty(p.qty);
+      else if (!pq.unit&&!/^(lemon|lime|orange)/i.test(pq.rest||'')) qty=fmtQty(p.qty*pq.qty);
+    }
+  }
+  var gi=groceryItem(name), j=gi&&/^(lemon|lime)( juice)?$/.exec(gi.key);
+  if (j) name=capFirst(j[1]+'s');
+  return name===item.name&&qty===item.qty?item:Object.assign({},item,{name:name,qty:qty});
 }
 // Add two grocery qty strings when they share a measure ("1/2 cup" + "2 tbsp"); else "a + b"
 function combineQtys(a,b){
@@ -1449,7 +1476,14 @@ var BUY_FORMS=[
   [new RegExp('^('+GRATE_CHEESES+')$'),            {whole:'oz', label:'block', prep:'grated',   tsp:{oz:16, lb:256}}],
   // Salad greens are sold by weight only (no switch): 1 cup spinach ~ 1 oz, lighter greens ~ 3/4 oz
   [/^spinach$/,                                   {whole:'oz', fixed:true, tsp:{oz:48, lb:768}}],
-  [/^(arugula|spring mix|mixed green|salad green)$/, {whole:'oz', fixed:true, tsp:{oz:64, lb:1024}}]
+  [/^(arugula|spring mix|mixed green|salad green)$/, {whole:'oz', fixed:true, tsp:{oz:64, lb:1024}}],
+  // By the crown/head, or by weight (alt:'weight'): a crown ~ 3 cups florets, 1 cup ~ 3 oz;
+  // a cabbage head ~ 10 cups shredded, 1 cup ~ 2 1/2 oz (bagged shredded is sold by weight)
+  [/^broccoli$/, {whole:'crown', prep:'by weight', alt:'weight', tsp:{crown:144, head:144, each:144, oz:16, lb:256}}],
+  [/^cabbage$/,  {whole:'head',  prep:'shredded', alt:'weight', suffix:'shredded', tsp:{head:480, each:480, oz:19, lb:304}}],
+  // Lemons and limes are bought whole: juice amounts become fruit (~3 tbsp a lemon, 2 a lime)
+  [/^lemon$/,    {whole:'each', fixed:true, slack:0.05, tsp:{each:9}}],
+  [/^lime$/,     {whole:'each', fixed:true, slack:0.05, tsp:{each:6}}]
 ];
 function buyForm(key){
   for (var i=0;i<BUY_FORMS.length;i++) if (BUY_FORMS[i][0].test(key)) return BUY_FORMS[i][1];
@@ -1469,10 +1503,13 @@ function buyAsQty(item){
     tsp+=p.qty*per; return true;
   });
   if (!ok||!tsp) return item.qty;
+  // By weight: up to the next 1/4 lb, the way produce is weighed and bagged
+  if (buyAs[gi.key]==='prepped'&&f.alt==='weight') return fmtWeight(Math.ceil(tsp/f.tsp.oz/4-0.05)*4)+(f.suffix?' '+f.suffix:'');
   // Prepped rounds up to a measure you'd buy or scoop: 1/4 cups, else tbsp
   if (buyAs[gi.key]==='prepped'&&!f.fixed) return fmtVolume(tsp>=12?Math.ceil(tsp/12-0.05)*12:Math.ceil(tsp/3-0.05)*3)+' '+f.prep;
   if (WT_OZ[f.whole]) return fmtWeight(Math.ceil(tsp/f.tsp[f.whole]-0.05))+(f.label?' '+f.label:'');
-  var n=Math.ceil(tsp/f.tsp[f.whole]-0.25);  // sizes vary: a little over still fits in what you bought
+  // Sizes vary: a little over still fits in what you bought (lemons and limes: exact)
+  var n=Math.ceil(tsp/f.tsp[f.whole]-(f.slack!=null?f.slack:0.25));
   return Math.max(1,n)+(f.whole==='each'?'':' '+pluralUnit(f.whole,n));
 }
 function toggleBuyAs(key, evt){
@@ -1530,7 +1567,7 @@ function consolidateGroceryList(list){
     if (!item||!item.name||!SALT_PEPPER_RE.test(item.name)) return [item];
     var qty=item.qty?String(item.qty).replace(/\s*\beach\b\s*/i,' ').trim():item.qty;
     return ['Salt','Black pepper'].map(function(n){ return Object.assign({},item,{name:n,qty:qty}); });
-  })).map(function(item){ return item&&item.name?applyFrozenPref(item):item; });
+  })).map(function(item){ return item&&item.name?applyFrozenPref(citrusItem(item)):item; });
   list.forEach(function(item){
     var gi=item&&item.name&&groceryItem(item.name);
     if (!gi){ out.push(item); return; }
@@ -2734,9 +2771,10 @@ function renderGrocery() {
       if (fk){
         var isFrozen=/^frozen /.test(gi.key), other=isFrozen?'fresh':'frozen';
         formBtn='<button class="gi-form" onclick="toggleFrozen(\''+esc(fk)+'\','+isFrozen+',event)" title="Buy '+other+' instead">&#8644; '+other+'</button>';
-      } else if (f&&!f.fixed){
+      }
+      if (f&&!f.fixed){  // fresh broccoli has both: frozen, and crown/weight
         var prepped=buyAs[gi.key]==='prepped', other=prepped?(f.label||(f.whole==='each'?'whole':f.whole)):f.prep;
-        formBtn='<button class="gi-form" onclick="toggleBuyAs(\''+esc(gi.key)+'\',event)" title="Buy '+esc(other)+' instead">&#8644; '+esc(other)+'</button>';
+        formBtn+='<button class="gi-form" onclick="toggleBuyAs(\''+esc(gi.key)+'\',event)" title="Buy '+esc(other)+' instead">&#8644; '+esc(other)+'</button>';
       }
       html+='<div class="grocery-item'+(done?' done':'')+'" data-item-id="'+id+'" onclick="toggleGroceryItem(this)">'
         +'<div class="gi-check">'+(done?'\u2713':'')+'</div>'
