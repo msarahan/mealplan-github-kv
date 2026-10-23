@@ -75,6 +75,7 @@ recipes:{householdCode}   → Recipe[] array
   "activeDiets": ["climatarian"],
   "optPriority": ["min-ingredients", "min-prep", "batch-prep", "make-ahead", "variety"],
   "planDays": 7,
+  "planStart": 4,
   "meals": [
     { "id": "breakfast", "name": "Breakfast", "notes": "" },
     { "id": "lunch", "name": "Lunch", "notes": "Packable, no reheating" },
@@ -98,6 +99,7 @@ recipes:{householdCode}   → Recipe[] array
 }
 ```
 Household servings arrays are indexed Mon=0 through Sun=6.
+`planStart` (Mon=0..Sun=6, default 0) is the weekday new plans start on: the shopping day. Plan day `di` is not weekday `di`. Use `dowOf(plan, di)` (from the first day's `dayName`) for anything by weekday: servings, weekends, make-ahead days.
 `meals` is each day's meals in order. `id` is the meal's type everywhere (plan `meal.type`, `householdServings` keys, recipe `mealTypes`); `breakfast`/`lunch`/`dinner` keep their planning rules (leftover lunches, prep timing) whatever their `name`. `notes` describes what to suggest and goes into the planning prompts. `mealsPerDay` is still written (= `meals.length`) for older app versions; settings without `meals` are migrated from `mealsPerDay` + the old `mealNames`.
 `buyAs` maps a grocery item key (see `groceryItem()`) to `"prepped"` to buy it chopped/minced by volume; items in `BUY_FORMS` default to whole (bunch, head, count; cheese as a block; salad greens always by weight).
 `frozenPref` maps a `FREEZABLE` item key to `true` (buy frozen) or `false` (fresh); unset keeps the recipe's form, except `FROZEN_DEFAULT` items (corn, mixed berries), which default to frozen.

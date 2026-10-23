@@ -572,6 +572,14 @@ body.cooking #app{display:none}
           <input type="range" min="1" max="14" value="7" step="1" id="days-slider"
             oninput="planDays=+this.value;document.getElementById('days-val').textContent=planDays;saveSettings()">
         </div>
+        <div class="leftover-row" style="margin-top:10px">
+          <label for="plan-start">Starts on</label>
+          <select id="plan-start" onchange="planStart=+this.value;saveSettings()">
+            <option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option>
+            <option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option>
+          </select>
+        </div>
+        <div class="srv-note" style="margin-top:7px">Start on your shopping day, so that day&rsquo;s meals use the fresh groceries.</div>
       </div>
       <div class="card">
         <div class="card-title">&#9201; Make-ahead days</div>
@@ -709,6 +717,7 @@ var leftoverLunches = 0;
 var libraryShare    = 'some';  // off | some | most: how much of a generated plan uses saved recipes
 var beanPrep        = 'can';   // can | soak | pressure: canned beans, or cook dried beans in batches
 var prepDays        = [];      // preferred make-ahead days, 0=Mon..6=Sun; empty = no preference
+var planStart       = 0;       // weekday new plans start on, 0=Mon..6=Sun (the shopping day)
 var buyAs           = {};      // grocery form by item key, e.g. {parsley:'prepped'}; default is whole
 var frozenPref      = {};      // buy frozen (true) or fresh (false) by item key; see FROZEN_DEFAULT
 var swaps           = [];      // ingredient swaps: [{from:<grocery key>, fromLabel, to}], applied to every recipe
@@ -869,7 +878,7 @@ function settingsObj() {
   return {
     activeDiets: Array.from(activeDiets), optPriority: optPriority,
     planDays: planDays, meals: meals, mealsPerDay: meals.length,  // mealsPerDay: for app versions before the meal list
-    householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays,
+    householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays, planStart: planStart,
     buyAs: buyAs, frozenPref: frozenPref, swaps: swaps, householdNotes: householdNotes, customItems: customItems,
     cal:     document.getElementById('cal-target').value,
     protein: document.getElementById('protein-target').value,
@@ -886,11 +895,12 @@ function saveSettings() {
 function resetSettings() {
   activeDiets = new Set(['climatarian']);
   optPriority = OPT_DEFS.map(function(o){ return o.id; });
-  planDays = 7; meals = JSON.parse(JSON.stringify(DEFAULT_MEALS)); leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; buyAs = {}; frozenPref = {}; swaps = []; householdNotes = ''; customItems = [];
+  planDays = 7; meals = JSON.parse(JSON.stringify(DEFAULT_MEALS)); leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; planStart = 0; buyAs = {}; frozenPref = {}; swaps = []; householdNotes = ''; customItems = [];
   document.getElementById('household-notes').value = '';
   householdServings = { breakfast:[2,2,2,2,2,4,4], lunch:[2,2,2,2,2,4,4], dinner:[4,4,4,4,4,4,4], snack:[2,2,2,2,2,2,2] };
   document.getElementById('days-slider').value = 7;
   document.getElementById('days-val').textContent = 7;
+  document.getElementById('plan-start').value = 0;
   renderMealList(); renderSwaps();
   document.getElementById('cal-target').value = 2000;
   document.getElementById('protein-target').value = 120;
@@ -912,6 +922,7 @@ function applySettings(s) {
   if (s.libraryShare)      libraryShare = s.libraryShare;
   if (s.beanPrep)          beanPrep = s.beanPrep;
   if (Array.isArray(s.prepDays)) prepDays = s.prepDays;
+  if (s.planStart>=0&&s.planStart<=6) planStart = +s.planStart;
   if (s.buyAs&&typeof s.buyAs==='object') buyAs = s.buyAs;
   if (s.frozenPref&&typeof s.frozenPref==='object') frozenPref = s.frozenPref;
   if (Array.isArray(s.swaps)) swaps = s.swaps;
@@ -921,6 +932,7 @@ function applySettings(s) {
   if (s.customItems)       customItems = s.customItems;
   document.getElementById('days-slider').value = planDays;
   document.getElementById('days-val').textContent = planDays;
+  document.getElementById('plan-start').value = planStart;
   renderMealList();
   if (s.cal)     document.getElementById('cal-target').value = s.cal;
   if (s.protein) document.getElementById('protein-target').value = s.protein;
@@ -1294,9 +1306,10 @@ function scaleIngs(ings, srv) {
 function toggleMealCard(h){ h.closest('.meal-card').classList.toggle('open'); }
 function toggleRecipeCard(id){ var el=document.getElementById('rc-'+id); if(el) el.classList.toggle('open'); }
 
-// Household default for a meal: that day's servings, plus next day's lunch if it makes leftovers
+// Household default for a meal: that day's servings, plus next day's lunch if it makes leftovers.
+// Servings are by weekday, and a plan can start on any day (plan day di is weekday dowOf).
 function defaultCookServings(meal, di) {
-  var d=di%7;
+  var d=currentPlan&&currentPlan.days?dowOf(currentPlan,di):di%7;
   return getSrv(meal.type,d)+(meal.leftoversForLunch?getSrv('lunch',(d+1)%7):0);
 }
 // meal.cookServings is a per-meal override saved with the plan
@@ -2419,7 +2432,8 @@ function buildPrompt() {
       }).join('\n');
   if (leftoverLunches>0) optLines+='\nLEFTOVER LUNCHES: Include exactly '+leftoverLunches+' leftover lunch(es). For each: mark the source dinner with "leftoversForLunch":true AND replace an appropriate LATER weekday lunch slot with {"type":"lunch","name":"[dinner name]","isLeftover":true,"sourceDinner":"[dinner name]"}. Choose the leftover day based on food safety and taste quality — fish/seafood within 2 days, poultry/meat within 3 days, vegetarian/grains/legumes within 4-5 days. The leftover does NOT have to be the very next day.';
   return dietSection+'\n\nMEALS EACH DAY, in this order (use the quoted id as each meal\'s "type"; plan food that suits each meal\'s name and description):\n'
-    +mealsSection(types)+'\nDAYS: '+planDays
+    +mealsSection(types)+'\nDAYS: '+planDays+', in this order: '+planDayNames().join(', ')
+    +' (day 1 is the shopping day: the household shops that morning, so its meals can use fresh groceries)'
     +'\nDAILY TARGETS: ~'+cal+' kcal, ~'+pro+'g protein, ~'+carb+'g carbs\n\n'
     +optLines
     +householdRule()
@@ -2561,6 +2575,8 @@ async function generatePlan() {
   try {
     var plan=fillFromLibrary(await callClaude(buildPrompt(),9000));
     applySwapsToPlan(plan);  // in case Claude didn't
+    // Day names follow the start day even if Claude numbered them from Monday
+    var names=planDayNames(); plan.days.forEach(function(d,i){ if(names[i]) d.dayName=names[i]; });
     plan.prepDays=prepDays.slice();  // this plan's make-ahead days (from the New plan panel)
     currentPlan=plan; renderPlan(plan);
     await checkAndFixFreshness(plan);
@@ -2588,6 +2604,8 @@ async function generatePlan() {
 // Empty slots for each day/meal type; the user fills them from saved recipes and
 // the grocery list is computed locally.
 var DAY_NAMES=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+// The next plan's day names, from its start day
+function planDayNames(){ var a=[]; for (var d=0; d<planDays; d++) a.push(DAY_NAMES[(planStart+d)%7]); return a; }
 function placeholderMeal(type){ return {type:type,name:'',_placeholder:true}; }
 function buildManualPlan() {
   if (currentPlan && currentPlan.days && currentPlan.days.length) {
@@ -2596,7 +2614,7 @@ function buildManualPlan() {
   }
   toggleNewPlan(false);
   var types=getMealTypes(), days=[];
-  for (var d=0; d<planDays; d++) days.push({dayName:DAY_NAMES[d%7], meals:types.map(placeholderMeal)});
+  for (var d=0; d<planDays; d++) days.push({dayName:DAY_NAMES[(planStart+d)%7], meals:types.map(placeholderMeal)});
   currentPlan={summary:{}, days:days, groceryList:[], customItems:customItems, prepDays:prepDays.slice()};
   pinnedMeals={};
   checkedItems=new Set(); kvPut('/checks/'+householdCode, []);
@@ -2686,7 +2704,7 @@ async function checkAndFixFreshness(plan) {
 function injectLeftovers(plan) {
   var count=0;
   for (var di=0;di<plan.days.length&&count<leftoverLunches;di++){
-    if(WEEKEND.indexOf(di%7)>=0) continue;
+    if(WEEKEND.indexOf(dowOf(plan,di))>=0) continue;
     for(var mi=0;mi<plan.days[di].meals.length;mi++){
       var meal=plan.days[di].meals[mi];
       if(meal.type==='dinner'&&count<leftoverLunches){
