@@ -1449,6 +1449,8 @@ var GROCERY_SYNONYMS={
   'butter':'unsalted butter',  // the household buys unsalted; "salted butter" stays its own line
   'ginger':'ginger root','ginger knob':'ginger root','lime wedge':'lime','lemon wedge':'lemon',
   'vanilla protein powder':'protein powder','chocolate protein powder':'protein powder','unflavored protein powder':'protein powder',
+  'red pepper flake':'red pepper flakes','crushed red pepper flake':'red pepper flakes','chili flake':'red pepper flakes',
+  'chile flake':'red pepper flakes','chilli flake':'red pepper flakes','crushed red pepper':'red pepper flakes',
   'mixed green':'spring mix','salad green':'spring mix','salad mix':'spring mix','mixed salad green':'spring mix','mesclun':'spring mix','mesclun mix':'spring mix','baby green':'spring mix','mixed baby green':'spring mix'
 };
 function singular(w){
@@ -1476,8 +1478,9 @@ function groceryItem(name, unit){
   if (!form&&/\bfresh mozzarella\b/.test(n)) form='fresh';  // the ball, not the shredded bag
   n=n.replace(FORM_RE,' ');
   if (!form&&!/\bcooked\b/.test(n)&&beanType(n)) form='canned';  // ready-to-use beans come in cans
-  // So do these, however the recipe words them ("1 cup crushed tomatoes")
-  if (!form&&/\b((diced|crushed|stewed|fire[- ]roasted|whole peeled|peeled|san marzano) tomato(es)?|tomato (paste|sauce|puree)|coconut milk)\b/.test(n)) form='canned';
+  // So do these, however the recipe words them ("1 cup crushed tomatoes"). Not "diced
+  // tomatoes": that's often fresh, and canned ones come with a can ("1 (14.5 oz) can").
+  if (!form&&/\b((crushed|stewed|fire[- ]roasted|whole peeled|peeled|san marzano) tomato(es)?|tomato (paste|sauce|puree)|coconut milk)\b/.test(n)) form='canned';
   // Canned diced and crushed tomatoes are different products, so they keep their prep words
   if (form!=='canned') n=n.replace(PREP_WORDS,' ');
   n=n.replace(/[^a-z0-9&'\- ]/g,' ').replace(/\s+/g,' ').trim()
@@ -1500,6 +1503,10 @@ function groceryItem(name, unit){
   var syn=GROCERY_SYNONYMS[base];
   base=syn||base.replace(/^(cilantro|parsley|basil|mint|thyme|oregano|rosemary|sage|dill|tarragon) (leaf|leave|sprig|stem)$/,'$1');
   if (base==='pepper'&&(!unit||/^(tsp|tbsp|pinch|dash)$/i.test(unit))) base='black pepper';
+  // The amount tells a spice from a vegetable: "1/4 tsp red pepper" is flakes,
+  // "1 red pepper" or "1 cup chopped red pepper" is a bell pepper
+  if (base==='red pepper'&&/^(tsp|pinch|dash)$/i.test(unit||'')) base='red pepper flakes';
+  else if (/^(red|green|yellow|orange) pepper$/.test(base)) base=base.replace(/ pepper$/,' bell pepper');
   if (form==='canned'&&base==='chicken breast') base='chicken';  // canned chicken is breast meat either way
   // A synonym shows its common name, plural if the recipe's was ("green onions" → "scallions")
   var shown=base===words.join(' ')?n:(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan|cabbage|broccoli|ginger root|lime|lemon|spring mix)$/.test(base)?pluralWord(base):base);
@@ -1624,6 +1631,17 @@ var BUY_FORMS=[
   // Peppers are only bought whole (no switch); chopped amounts still convert to a count
   [/bell pepper$/,                 {whole:'each',  fixed:true, tsp:{each:48}}],
   [/^jalapeno$/,                   {whole:'each',  fixed:true, tsp:{each:6}}],
+  // Produce bought whole even when recipes measure it in cups or weight: chopped or sliced
+  // yield and weight of a typical one, rounded up to whole ones (slack 0.05)
+  [/^(english|hothouse|seedless) cucumber$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:120, oz:10, lb:160}}],  // ~2 1/2 cups, 12 oz
+  [/^(persian|mini) cucumber$/,    {whole:'each', fixed:true, slack:0.05, tsp:{each:24, oz:6, lb:96}}],    // ~1/2 cup, 4 oz
+  [/^cucumber$/,                   {whole:'each', fixed:true, slack:0.05, tsp:{each:72, oz:9, lb:144}}],   // ~1 1/2 cups, 8 oz
+  [/^(zucchini|yellow squash|summer squash)$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:96, oz:14, lb:224}}],  // ~2 cups, 7 oz
+  [/^((roma|plum|vine|vine-ripened|beefsteak|heirloom) )?tomato$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:36, oz:7, lb:112}}],  // ~3/4 cup, 5 oz
+  [/^avocado$/,                    {whole:'each', fixed:true, slack:0.05, tsp:{each:36, oz:6, lb:96}}],    // ~3/4 cup, 6 oz
+  [/^sweet potato$/,               {whole:'each', fixed:true, slack:0.05, tsp:{each:72, oz:14, lb:224}}],  // ~1 1/2 cups, 5 oz
+  [/^((russet|yukon gold|gold|red|white) )?potato$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:60, oz:10, lb:160}}],  // ~1 1/4 cups, 6 oz
+  [/^((granny smith|honeycrisp|gala|fuji|red|green) )?apple$/, {whole:'each', fixed:true, slack:0.05, tsp:{each:48, oz:8, lb:128}}],  // ~1 cup, 6 oz
   // Crumbled cheeses are sold by weight only: 1 cup crumbled ~ 5 oz
   [new RegExp('^('+CRUMBLE_CHEESES+'|goat cheese|blue cheese)$'), {whole:'oz', fixed:true, tsp:{oz:9.6, lb:154}}],
   // Cheese: a block by weight, or shredded/grated by volume (4 oz ~ 1 cup shredded, 3 oz ~ 1 cup grated)
@@ -1949,7 +1967,7 @@ function consolidateGroceryList(list){
     return ['Salt','Black pepper'].map(function(n){ return Object.assign({},item,{name:n,qty:qty}); });
   })).map(function(item){ return item&&item.name?applyFrozenPref(dryGrainItem(citrusItem(unitFromName(nameWithoutAmount(item))))):item; });
   list.forEach(function(item){
-    var gi=item&&item.name&&groceryItem(item.name);
+    var gi=item&&item.name&&groceryItem(item.name, item.qty&&parseIng(String(item.qty)).unit);  // the unit tells "red pepper" flakes from a bell pepper
     if (!gi){ out.push(item); return; }
     item.name=gi.name;
     var guess=guessCategory(gi.name);  // the app's rules over Claude's when they know the item
