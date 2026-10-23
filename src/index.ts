@@ -35,6 +35,47 @@ async function callAnthropic(env, payload) {
   return resp;
 }
 
+// Same call, streamed, assembled back into a Messages API response ({content, stop_reason,
+// usage}) or {error}. A long reply (a week's plan) sent in one piece left the connection
+// silent for minutes and Anthropic's edge gave up with a 524; streamed, text keeps flowing.
+async function callAnthropicStreamed(env, payload) {
+  const resp = await callAnthropic(env, { ...payload, stream: true });
+  if (!resp.ok || !(resp.headers.get('Content-Type') || '').includes('text/event-stream')) {
+    const text = await resp.text();
+    try { return JSON.parse(text); }
+    catch { return { error: { message: `Claude's API returned an unreadable reply (HTTP ${resp.status}). Please try again.` } }; }
+  }
+  const msg = { content: [], stop_reason: null, usage: null };
+  const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value.replace(/\r\n/g, '\n');
+    let end;
+    while ((end = buf.indexOf('\n\n')) >= 0) {
+      const event = buf.slice(0, end); buf = buf.slice(end + 2);
+      const data = event.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
+      if (!data) continue;
+      let ev;
+      try { ev = JSON.parse(data); } catch { continue; }
+      if (ev.type === 'message_start') { msg.id = ev.message?.id; msg.model = ev.message?.model; msg.usage = ev.message?.usage; }
+      else if (ev.type === 'content_block_start') msg.content[ev.index] = { ...ev.content_block };
+      else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+        const block = msg.content[ev.index] || (msg.content[ev.index] = { type: 'text', text: '' });
+        block.text = (block.text || '') + ev.delta.text;
+      }
+      else if (ev.type === 'message_delta') {
+        if (ev.delta?.stop_reason) msg.stop_reason = ev.delta.stop_reason;
+        if (ev.usage) msg.usage = { ...msg.usage, ...ev.usage };
+      }
+      else if (ev.type === 'error') return { error: ev.error || { message: 'Claude stopped with an error. Please try again.' } };
+    }
+  }
+  msg.content = msg.content.filter(Boolean);
+  return msg;
+}
+
 // Pull the JSON object out of a Messages API response (thinking blocks have no .text)
 function extractJson(data) {
   if (data.stop_reason === 'refusal') throw new Error('Claude declined this request');
@@ -397,11 +438,10 @@ export default {
     }
 
     // ── POST /generate ───────────────────────────────────────────────────────
-    // A full week's plan can take Claude a couple of minutes. Waiting for all of it
-    // before answering let the connection time out (an HTML error page the app
-    // couldn't read), so answer at once, send a space every few seconds while
-    // Claude works, then the JSON. Leading whitespace is valid JSON. Failures come
-    // back as {error:{message}} too.
+    // A full week's plan can take Claude a couple of minutes. Claude's reply is
+    // streamed in (callAnthropicStreamed) so that connection never sits silent, and
+    // the app is answered at once with a space every few seconds, then the JSON.
+    // Leading whitespace is valid JSON. Failures come back as {error:{message}} too.
     if (request.method === 'POST' && path === '/generate') {
       const payload = await request.json();
       const { readable, writable } = new TransformStream();
@@ -411,10 +451,7 @@ export default {
       const finish = (async () => {
         let body;
         try {
-          const resp = await callAnthropic(env, payload);
-          const text = await resp.text();
-          try { body = JSON.parse(text); }
-          catch { body = { error: { message: `Claude's API returned an unreadable reply (HTTP ${resp.status}). Please try again.` } }; }
+          body = await callAnthropicStreamed(env, payload);
         } catch (e) {
           body = { error: { message: 'Could not reach Claude: ' + (e?.message || e) } };
         }

@@ -260,6 +260,39 @@ describe('Anthropic calls', () => {
     expect(JSON.parse(await res.text())).toEqual(reply);
   });
 
+  it('/generate streams from Claude and assembles the reply', async () => {
+    const sse = [
+      { type: 'message_start', message: { id: 'msg_1', model: MODEL, usage: { input_tokens: 10 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'hmm' } },
+      { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: '{"days":' } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: '[]}' } },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 7 } },
+      { type: 'message_stop' },
+    ].map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+    let sent: any;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input: any, init?: any) => {
+      sent = JSON.parse(init?.body);
+      // Arrives in small pieces that split events and lines, like a real stream
+      const enc = new TextEncoder();
+      const body = new ReadableStream({ start(c) { for (let i = 0; i < sse.length; i += 7) c.enqueue(enc.encode(sse.slice(i, i + 7))); c.close(); } });
+      return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } });
+    });
+    const body = JSON.parse(await (await generate()).text());
+    expect(sent.stream).toBe(true);
+    expect(body.stop_reason).toBe('end_turn');
+    expect(body.content.map((b: any) => b.text || '').join('')).toBe('{"days":[]}');
+    expect(body.usage.output_tokens).toBe(7);
+  });
+
+  it('/generate reports an error event mid-stream', async () => {
+    const sse = `event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } })}\n\n`;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(sse, { headers: { 'Content-Type': 'text/event-stream' } }));
+    const body = JSON.parse(await (await generate()).text());
+    expect(body.error.message).toBe('Overloaded');
+  });
+
   it('/generate turns a non-JSON reply into a JSON error', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('<html>Bad gateway</html>', { status: 502 }));
     const body = JSON.parse(await (await generate()).text());

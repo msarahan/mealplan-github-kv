@@ -2527,7 +2527,7 @@ function buildBackfillPrompt(pinnedSummary, slotsToFill, cal, pro, carb) {
 
 // ── Progress ──────────────────────────────────────────────────────────────────
 var progInterval=null, progStart=0, progPhase=0;
-var PHASE_DUR=[34000,10000], PHASE_SHARE=[0.80,0.20];
+var PHASE_DUR=[120000,2000], PHASE_SHARE=[0.95,0.05];  // a full week from Claude takes ~2 min; the grocery list is local
 function startProg(phase){ progPhase=phase; progStart=Date.now(); if(progInterval) clearInterval(progInterval); progInterval=setInterval(tickProg,250); }
 function stopProg(){ if(progInterval){clearInterval(progInterval);progInterval=null;} }
 function tickProg(){
@@ -2591,18 +2591,18 @@ async function generatePlan() {
     plan.prepDays=prepDays.slice();  // this plan's make-ahead days (from the New plan panel)
     currentPlan=plan; renderPlan(plan);
     await checkAndFixFreshness(plan);
-    var sub=document.getElementById('prog-sub'); if(sub) sub.textContent='Building grocery list...';
     var steps=document.querySelectorAll('.progress-step');
     if(steps[0]){steps[0].classList.remove('active');steps[0].classList.add('done');}
     if(steps[1]) steps[1].classList.add('active');
-    startProg(1);
-    var grocery=await callClaude(buildGroceryPrompt(plan),8000);
-    plan.groceryList=consolidateGroceryList(normalizeGroceryQtys(grocery.groceryList));
-    refreshSummary(plan);  // daily averages include sides
-    completeProg();
+    // The app builds the grocery list itself right away; Claude's tidier version
+    // follows in the background instead of being another minute's wait
     plan.customItems=customItems;
+    plan.groceryList=[];
+    recomputeGroceryLocal();  // also fills in the summary
+    completeProg();
     await pushPlan(plan);
-    setTimeout(function(){ renderGrocery(); },400);
+    renderPlan(plan);
+    scheduleGroceryRefresh();
   } catch(err) {
     stopProg();
     pc.innerHTML='<div class="error-card">Could not generate plan. Please try again.<br><small style="opacity:.7;margin-top:4px;display:block">'+esc(err.message)+'</small></div>';
@@ -2639,6 +2639,8 @@ function fitPlanToWeek(plan){
   plan.days=week.map(function(w,i){
     var d=(named?byName[w.name]:got[i])||{meals:[]};
     d.dayName=w.name;
+    // A day Claude left out gets empty slots, so Backfill can fill them
+    if (!d.meals||!d.meals.length) d.meals=dayMealTypes(w).map(placeholderMeal);
     if (!w.dinner){ d.meals=(d.meals||[]).filter(function(m){ return m.type!=='dinner'; }); d.noDinner=true; }
     return d;
   });
