@@ -2438,7 +2438,7 @@ function scheduleGroceryRefresh(){
   if (!isOnline()) return;  // the locally computed list stands until we're back online
   groceryTimer=setTimeout(function(){
     setGroceryStatus('spin','AI refresh...');
-    callClaude(buildGroceryPrompt(currentPlan),6000).then(function(r){
+    callClaude(buildGroceryPrompt(currentPlan),24000).then(function(r){
       if(r&&r.groceryList){ currentPlan.groceryList=consolidateGroceryList(normalizeGroceryQtys(r.groceryList)); renderGrocery(); kvPut('/plan/'+householdCode,currentPlan); setGroceryStatus('ok','AI refreshed'); setTimeout(function(){setGroceryStatus('','');},2500); }
     }).catch(function(){ setGroceryStatus('',''); });
   },4000);
@@ -2577,10 +2577,47 @@ async function callClaude(prompt, maxTokens) {
   var data=await readJsonResponse(resp);
   if (data.error) throw new Error(data.error.message||data.error);
   if (data.stop_reason==='refusal') throw new Error('Claude declined this request');
+  // Out of room (thinking counts too): the JSON stops mid-way, so say that rather than
+  // report a parse error
+  if (data.stop_reason==='max_tokens') throw new Error('Claude’s reply was too long and got cut off. Please try again.');
   var raw=data.content.map(function(b){return b.text||'';}).join('');
   var s=raw.indexOf('{'),e=raw.lastIndexOf('}');
   if(s===-1||e===-1) throw new Error('No JSON in response');
-  return JSON.parse(raw.slice(s,e+1));
+  try { return parseLooseJson(raw.slice(s,e+1)); }
+  catch(err){ throw new Error('Claude sent back a reply the app couldn’t read ('+err.message+'). Please try again.'); }
+}
+// Claude's JSON, with the usual slips repaired if it doesn't parse as is: a quote
+// inside a string ('1" piece ginger'), a trailing comma, a fraction as a number
+// ("protein": 42 1/2). The original error is reported if repairs don't help.
+function parseLooseJson(text){
+  try { return JSON.parse(text); }
+  catch(first){
+    var fixed=escapeStrayQuotes(text)
+      .replace(/,(\s*[\]}])/g,'$1')
+      .replace(/:\s*(\d+)\s+(\d+)\/(\d+)(?=\s*[,}\]])/g,function(_,w,n,d){ return ':'+(+w+n/d); })
+      .replace(/:\s*(\d+)\/(\d+)(?=\s*[,}\]])/g,function(_,n,d){ return ':'+(n/d); });
+    try { return JSON.parse(fixed); } catch(e){ throw first; }
+  }
+}
+// Inside a JSON string, a quote that isn't followed by , ] } or : can't be the end of
+// the string, so it's escaped; raw newlines in strings are escaped too
+function escapeStrayQuotes(s){
+  var out='', inStr=false;
+  for (var i=0;i<s.length;i++){
+    var c=s.charAt(i);
+    if (!inStr){ if (c==='"') inStr=true; out+=c; continue; }
+    if (c==='\\'){ out+=c+s.charAt(i+1); i++; continue; }
+    if (c==='\n'){ out+='\\n'; continue; }
+    if (c==='"'){
+      var j=i+1; while (j<s.length&&/\s/.test(s.charAt(j))) j++;
+      var next=s.charAt(j);
+      if (next===''||next===','||next===']'||next==='}'||next===':'){ inStr=false; out+=c; }
+      else out+='\\"';
+      continue;
+    }
+    out+=c;
+  }
+  return out;
 }
 
 // ── Prompt builders ───────────────────────────────────────────────────────────
@@ -2872,7 +2909,7 @@ async function generatePlan() {
   var pc=document.getElementById('plan-content');
   pc.innerHTML=progHTML(0); startProg(0);
   try {
-    var plan=fillFromLibrary(await callClaude(buildPrompt(),9000));
+    var plan=fillFromLibrary(await callClaude(buildPrompt(),32000));  // a week's plan + thinking needs room
     applySwapsToPlan(plan);  // in case Claude didn't
     fitPlanToWeek(plan);  // the plan's week, whatever day names Claude used
     markStepsPending(plan);  // steps are written when a meal is opened
@@ -3106,7 +3143,7 @@ async function backfillPlan() {
   });
   if(slotsToFill.length===0){ alert('No empty slots to fill.'); btn.disabled=false; btn.textContent='Backfill remaining meals'; return; }
   try {
-    var result=await callClaude(buildBackfillPrompt(pinnedSummary,slotsToFill,cal,pro,carb),6000);
+    var result=await callClaude(buildBackfillPrompt(pinnedSummary,slotsToFill,cal,pro,carb),24000);  // can be most of a week
     if(!result.meals) throw new Error('No meals returned');
     result.meals.forEach(function(newMeal){
       var match=slotsToFill.filter(function(s){ return s.dayName===newMeal.dayName&&s.type===newMeal.type; })[0];
