@@ -513,6 +513,13 @@ body.cooking #app{display:none}
       <div class="srv-note" style="margin-top:7px">Each day's meals, in order. Describe what you'd like for each and Claude plans to match. Changes apply to the next plan.</div>
     </div>
     <div class="card">
+      <div class="card-title">&#127968; About your household</div>
+      <textarea class="mn-input ml-notes" id="household-notes" rows="5" maxlength="2000"
+        placeholder="Your week: shopping day, who cooks which nights, when there's time for batch prep, and anything else Claude should plan around. e.g. We shop on Friday. Kari cooks Sat, Mon and Fri; I cook Sun, Tue and Wed. Breakfasts and lunches should be make-ahead or warm-up only. Bulk prep is possible Sat, Sun, Mon and Fri."
+        onchange="setHouseholdNotes(this.value)"></textarea>
+      <div class="srv-note" style="margin-top:7px">Claude follows this when planning meals, choosing how much work each one takes, and scheduling batch prep and make-ahead tasks.</div>
+    </div>
+    <div class="card">
       <div class="card-title">&#128106; Household servings</div>
       <div class="srv-scroll"><div id="srv-table-wrap"></div></div>
       <div class="srv-note">Servings per meal per day of week. Weekend columns are shaded.</div>
@@ -705,6 +712,7 @@ var prepDays        = [];      // preferred make-ahead days, 0=Mon..6=Sun; empty
 var buyAs           = {};      // grocery form by item key, e.g. {parsley:'prepped'}; default is whole
 var frozenPref      = {};      // buy frozen (true) or fresh (false) by item key; see FROZEN_DEFAULT
 var swaps           = [];      // ingredient swaps: [{from:<grocery key>, fromLabel, to}], applied to every recipe
+var householdNotes  = '';      // free text about the household's week (who cooks when, prep time), for every planning prompt
 var checkedItems    = new Set();
 var customItems     = [];
 var savedRecipes    = [];
@@ -862,7 +870,7 @@ function settingsObj() {
     activeDiets: Array.from(activeDiets), optPriority: optPriority,
     planDays: planDays, meals: meals, mealsPerDay: meals.length,  // mealsPerDay: for app versions before the meal list
     householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays,
-    buyAs: buyAs, frozenPref: frozenPref, swaps: swaps, customItems: customItems,
+    buyAs: buyAs, frozenPref: frozenPref, swaps: swaps, householdNotes: householdNotes, customItems: customItems,
     cal:     document.getElementById('cal-target').value,
     protein: document.getElementById('protein-target').value,
     carbs:   document.getElementById('carbs-target').value
@@ -878,7 +886,8 @@ function saveSettings() {
 function resetSettings() {
   activeDiets = new Set(['climatarian']);
   optPriority = OPT_DEFS.map(function(o){ return o.id; });
-  planDays = 7; meals = JSON.parse(JSON.stringify(DEFAULT_MEALS)); leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; buyAs = {}; frozenPref = {}; swaps = []; customItems = [];
+  planDays = 7; meals = JSON.parse(JSON.stringify(DEFAULT_MEALS)); leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; buyAs = {}; frozenPref = {}; swaps = []; householdNotes = ''; customItems = [];
+  document.getElementById('household-notes').value = '';
   householdServings = { breakfast:[2,2,2,2,2,4,4], lunch:[2,2,2,2,2,4,4], dinner:[4,4,4,4,4,4,4], snack:[2,2,2,2,2,2,2] };
   document.getElementById('days-slider').value = 7;
   document.getElementById('days-val').textContent = 7;
@@ -906,6 +915,8 @@ function applySettings(s) {
   if (s.buyAs&&typeof s.buyAs==='object') buyAs = s.buyAs;
   if (s.frozenPref&&typeof s.frozenPref==='object') frozenPref = s.frozenPref;
   if (Array.isArray(s.swaps)) swaps = s.swaps;
+  if (typeof s.householdNotes==='string') householdNotes = s.householdNotes;
+  document.getElementById('household-notes').value = householdNotes;
   renderSwaps();
   if (s.customItems)       customItems = s.customItems;
   document.getElementById('days-slider').value = planDays;
@@ -1675,6 +1686,14 @@ function applySwapsToPlan(plan, list){
   return n;
 }
 // For prompts: what the household always swaps
+// For prompts: the household's own description of its week
+function householdRule(){
+  var t=(householdNotes||'').trim();
+  if (!t) return '';
+  return '\n\nABOUT THE HOUSEHOLD (follow this when choosing recipes, how much work each meal takes, which day gets which meal, '
+    +'and when to schedule batch prep and make-ahead tasks in sharedPrepTips, prepNote and batchNote):\n'+t;
+}
+function setHouseholdNotes(v){ householdNotes=String(v||'').trim(); saveSettings(); }
 function swapsRule(){
   if (!swaps.length) return '';
   return '\n\nINGREDIENT SWAPS (household preference, always apply): '+swaps.map(function(s){ return 'use '+s.to+' instead of '+(s.fromLabel||s.from); }).join('; ')+'.';
@@ -2403,6 +2422,7 @@ function buildPrompt() {
     +mealsSection(types)+'\nDAYS: '+planDays
     +'\nDAILY TARGETS: ~'+cal+' kcal, ~'+pro+'g protein, ~'+carb+'g carbs\n\n'
     +optLines
+    +householdRule()
     +swapsRule()
     +librarySection()
     +sidesRules()
@@ -2469,6 +2489,7 @@ function buildBackfillPrompt(pinnedSummary, slotsToFill, cal, pro, carb) {
     +'\nMEAL TYPES (what suits each):\n'+mealsSection(slotsToFill.map(function(s){ return s.type; }).filter(function(t,i,a){ return a.indexOf(t)===i; }))
     +'\n\nFor each slot generate a recipe balancing the day against pinned meals. US units, ingredients for 1 serving.'
     +beanRules()
+    +householdRule()
     +swapsRule()
     +librarySection('slots to fill','{"dayName":"<day>","type":"<meal type>","name":"<exact saved name>","libraryId":"<id>","leftoversForLunch":false,"prepNote":null,"batchNote":null}')
     +sidesRules()
@@ -2635,6 +2656,7 @@ async function checkAndFixFreshness(plan) {
   var prompt='Meal plan has freshness violations:\n'+violationDesc
     +'\n\nPlan:\n'+planDesc
     +'\n\nSwap meals between days (same meal type only) to fix violations. Prefer the fewest swaps.'
+    +householdRule()
     +'\nReturn ONLY valid JSON: {"swaps":[{"fromDay":"Friday","fromType":"lunch","toDay":"Wednesday","toType":"lunch"}]}';
   try {
     var result=await callClaude(prompt,800);
@@ -2967,6 +2989,7 @@ async function swapMeal(di,mi,btn,customPrompt){
       ? 'Suggest ONE '+meal.type+' recipe for a '+dl+' diet.'+target+' US units.'
       : 'Suggest ONE alternative '+meal.type+' recipe replacing "'+meal.name+'" for a '+dl+' diet.'+target+' US units.';
   prompt+=beanRules();  // cooked-from-dried beans, when that's the household setting
+  prompt+=' This is for '+currentPlan.days[di].dayName+'.'+householdRule()+swapsRule();
   // Offer saved recipes for this meal type (not the one being replaced)
   var cands=libraryCandidates(25,function(r){
     return r.id!==meal.libraryId&&r.name!==meal.name&&(!(r.mealTypes&&r.mealTypes.length)||r.mealTypes.indexOf(meal.type)>=0);
@@ -2984,6 +3007,7 @@ async function swapMeal(di,mi,btn,customPrompt){
   try{
     var data=await callClaude(prompt,700);
     if(!fillMealFromLibrary(data)&&!hasIngredients(data)) throw new Error('No recipe returned');
+    applySwapsToDish(data);
     data.type=meal.type;
     data.leftoversForLunch=meal.leftoversForLunch||false;
     if(mealSides(meal).length) data.sides=meal.sides;  // keep the sides when swapping the main
@@ -3764,7 +3788,8 @@ async function suggestSide(di,mi,request){
     +(request?' matching this request: "'+request+'"':'')+'. The meal now has ~'+(tot.calories||'?')+' kcal and ~'+(tot.protein||'?')+'g protein per serving; '
     +'daily targets are ~'+cal+' kcal and ~'+pro+'g protein. Choose a side that improves the meal\'s balance (vegetables, fiber, protein or whole grains, whatever it lacks), '
     +'with few extra ingredients and little prep; reuse ingredients from the main where possible. US units, ingredients for 1 serving.'
-    +beanRules();
+    +' This is for '+currentPlan.days[di].dayName+'.'
+    +beanRules()+householdRule()+swapsRule();
   var cands=libraryCandidates(25,function(r){ return r.id!==meal.libraryId&&r.name!==meal.name; });
   if(cands.length){
     prompt+='\n\nSAVED RECIPES (the household\'s own library): use one of these if it is a good side for this meal; '
@@ -3774,6 +3799,7 @@ async function suggestSide(di,mi,request){
   try{
     var side=await callClaude(prompt,700);
     if(!fillMealFromLibrary(side)&&!hasIngredients(side)) throw new Error('No recipe returned');
+    applySwapsToDish(side);
     meal.sides=mealSides(meal).concat([{name:side.name,libraryId:side.libraryId,tags:side.tags||[],prepMins:side.prepMins,
       calories:side.calories,protein:side.protein,carbs:side.carbs,fat:side.fat,ingredients:side.ingredients,steps:side.steps||[]}]);
     if(!meal.sides[meal.sides.length-1].libraryId) delete meal.sides[meal.sides.length-1].libraryId;
