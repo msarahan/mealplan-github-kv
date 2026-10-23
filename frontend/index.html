@@ -2221,8 +2221,9 @@ function fmtGroceryTotal(m){
 // "1 square baked blueberry oatmeal" is a piece of a dish made elsewhere in the plan.
 // Its groceries are counted with that dish, so it isn't bought. Skipped only when the
 // name matches another planned dish (2+ words, any order, plurals and filler aside)
-// and it reads as a portion of it ("square", "slice", "serving", "leftover", ...), so
-// "1 cup Greek yogurt" stays even next to a dish called "Greek Yogurt".
+// and it reads as some of that dish (a portion word like "square" or "leftover", or a
+// 3+ word name like "spinach-feta egg muffins"), so "1 cup Greek yogurt" stays even next
+// to a dish called "Greek Yogurt".
 var PORTION_WORDS='squares?|slices?|servings?|portions?|pieces?|bars?|wedges?|muffins?|bowls?|helpings?';
 var PORTION_RE=new RegExp('^('+PORTION_WORDS+')\\b');
 var MADE_RE=/\b(leftovers?|prepared|made|homemade|reserved|batch)\b/;
@@ -2243,8 +2244,13 @@ function plannedDishIndex(plan){
 // are the dishes it belongs to, which never count.
 function isPlannedDishRef(ing, idx, own){
   var text=String(ing), p=parseIng(text), name=(p.rest||text).split(',')[0].trim().toLowerCase();
-  var portion=PORTION_RE.test((p.unit||'').toLowerCase())||PORTION_RE.test(name)||MADE_RE.test(text.toLowerCase());
-  var hits=portion&&idx[dishTokens(name)];
+  var tokens=dishTokens(name);
+  // Reads as some of that dish: a portion word, or a name distinctive enough (3+ words,
+  // "2 spinach-feta egg muffins") to be the dish itself. A 2-word name needs the portion
+  // word, so "2 sweet potatoes" stays even next to a dish called "Sweet Potato".
+  var portion=PORTION_RE.test((p.unit||'').toLowerCase())||PORTION_RE.test(name)||MADE_RE.test(text.toLowerCase())
+    ||tokens.split(' ').length>=3;
+  var hits=portion&&idx[tokens];
   return !!hits&&hits.some(function(d){ return own.indexOf(d)<0; });
 }
 // Water from the tap isn't bought; distilled, sparkling, coconut and the like are
