@@ -82,13 +82,15 @@ recipes:{householdCode}   → Recipe[] array
   "leftoverLunches": 2,
   "customItems": [{ "id": "ci-123", "name": "Sparkling water", "qty": "x3" }],
   "buyAs": { "parsley": "prepped" },
+  "frozenPref": { "corn": true, "pea": false },
   "cal": "2000",
   "protein": "120",
   "carbs": "220"
 }
 ```
 Household servings arrays are indexed Mon=0 through Sun=6.
-`buyAs` maps a grocery item key (see `groceryItem()`) to `"prepped"` to buy it chopped/minced by volume; items in `BUY_FORMS` default to whole (bunch, head, count).
+`buyAs` maps a grocery item key (see `groceryItem()`) to `"prepped"` to buy it chopped/minced by volume; items in `BUY_FORMS` default to whole (bunch, head, count; cheese as a block; salad greens always by weight).
+`frozenPref` maps a `FREEZABLE` item key to `true` (buy frozen) or `false` (fresh); unset keeps the recipe's form, except `FROZEN_DEFAULT` items (corn, mixed berries), which default to frozen.
 
 ## Grocery consolidation
 `groceryItem(name, unit)` gives each ingredient a key: prep/size words are dropped and synonyms merged, but fresh/frozen/dried/canned stay separate. Both the local recompute and Claude's list (`consolidateGroceryList`, also run on every render) merge on that key. `buyAsQty(item)` converts the displayed qty to the household's whole/prepped choice without changing the stored qty.

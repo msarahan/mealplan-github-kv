@@ -684,6 +684,7 @@ var beanPrep        = 'can';   // can | soak | pressure: canned beans, or cook d
 var prepDays        = [];      // preferred make-ahead days, 0=Mon..6=Sun; empty = no preference
 var mealNames       = {};      // custom display names by meal type, e.g. {dinner:'Supper'}
 var buyAs           = {};      // grocery form by item key, e.g. {parsley:'prepped'}; default is whole
+var frozenPref      = {};      // buy frozen (true) or fresh (false) by item key; see FROZEN_DEFAULT
 var checkedItems    = new Set();
 var customItems     = [];
 var savedRecipes    = [];
@@ -840,7 +841,7 @@ function settingsObj() {
     activeDiets: Array.from(activeDiets), optPriority: optPriority,
     planDays: planDays, mealsPerDay: mealsPerDay,
     householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays, mealNames: mealNames,
-    buyAs: buyAs, customItems: customItems,
+    buyAs: buyAs, frozenPref: frozenPref, customItems: customItems,
     cal:     document.getElementById('cal-target').value,
     protein: document.getElementById('protein-target').value,
     carbs:   document.getElementById('carbs-target').value
@@ -856,7 +857,7 @@ function saveSettings() {
 function resetSettings() {
   activeDiets = new Set(['climatarian']);
   optPriority = OPT_DEFS.map(function(o){ return o.id; });
-  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; mealNames = {}; buyAs = {}; customItems = [];
+  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; mealNames = {}; buyAs = {}; frozenPref = {}; customItems = [];
   householdServings = { breakfast:[2,2,2,2,2,4,4], lunch:[2,2,2,2,2,4,4], dinner:[4,4,4,4,4,4,4], snack:[2,2,2,2,2,2,2] };
   document.getElementById('days-slider').value = 7;
   document.getElementById('days-val').textContent = 7;
@@ -885,6 +886,7 @@ function applySettings(s) {
   if (Array.isArray(s.prepDays)) prepDays = s.prepDays;
   if (s.mealNames&&typeof s.mealNames==='object') mealNames = s.mealNames;
   if (s.buyAs&&typeof s.buyAs==='object') buyAs = s.buyAs;
+  if (s.frozenPref&&typeof s.frozenPref==='object') frozenPref = s.frozenPref;
   if (s.customItems)       customItems = s.customItems;
   document.getElementById('days-slider').value = planDays;
   document.getElementById('days-val').textContent = planDays;
@@ -1284,7 +1286,8 @@ var GROCERY_SYNONYMS={
   'green onion':'scallion','spring onion':'scallion','garbanzo bean':'chickpea','garlic clove':'garlic',
   'kosher salt':'salt','sea salt':'salt','table salt':'salt','fine salt':'salt','flaky salt':'salt',
   'ground black pepper':'black pepper','ground pepper':'black pepper','egg yolk':'egg','egg white':'egg',
-  'parmigiano reggiano':'parmesan','parmigiano-reggiano':'parmesan','parmigiano':'parmesan'
+  'parmigiano reggiano':'parmesan','parmigiano-reggiano':'parmesan','parmigiano':'parmesan',
+  'corn kernel':'corn','corn on the cob':'corn','sweet corn':'corn','ear corn':'corn'
 };
 function singular(w){
   if (/(ss|us|is)$/.test(w)) return w;
@@ -1321,7 +1324,7 @@ function groceryItem(name, unit){
   base=syn||base.replace(/^(cilantro|parsley|basil|mint|thyme|oregano|rosemary|sage|dill|tarragon) (leaf|leave|sprig|stem)$/,'$1');
   if (base==='pepper'&&(!unit||/^(tsp|tbsp|pinch|dash)$/i.test(unit))) base='black pepper';
   // A synonym shows its common name, plural if the recipe's was ("green onions" → "scallions")
-  var shown=base===words.join(' ')?n:base+(syn&&/s$/.test(n)&&!/s$/.test(base)&&base!=='salt'&&base!=='black pepper'?'s':'');
+  var shown=base===words.join(' ')?n:base+(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan)$/.test(base)?'s':'');
   if (chile) base=chile[1];  // "jalapeño peppers" and "jalapeños" are one item; the name reads as written
   return {key:(form?form+' ':'')+base, name:capFirst((form?form+' ':'')+shown)};
 }
@@ -1380,7 +1383,10 @@ var BUY_FORMS=[
   [/^jalapeno$/,                   {whole:'each',  prep:'minced',  tsp:{each:6}}],
   // Cheese: a block by weight, or shredded/grated by volume (4 oz ~ 1 cup shredded, 3 oz ~ 1 cup grated)
   [new RegExp('^(?!fresh )([a-z-]+ )*('+SHRED_CHEESES+')$'), {whole:'oz', label:'block', prep:'shredded', tsp:{oz:12, lb:192}}],
-  [new RegExp('^('+GRATE_CHEESES+')$'),            {whole:'oz', label:'block', prep:'grated',   tsp:{oz:16, lb:256}}]
+  [new RegExp('^('+GRATE_CHEESES+')$'),            {whole:'oz', label:'block', prep:'grated',   tsp:{oz:16, lb:256}}],
+  // Salad greens are sold by weight only (no switch): 1 cup spinach ~ 1 oz, lighter greens ~ 3/4 oz
+  [/^spinach$/,                                   {whole:'oz', fixed:true, tsp:{oz:48, lb:768}}],
+  [/^(arugula|spring mix|mixed green|salad green)$/, {whole:'oz', fixed:true, tsp:{oz:64, lb:1024}}]
 ];
 function buyForm(key){
   for (var i=0;i<BUY_FORMS.length;i++) if (BUY_FORMS[i][0].test(key)) return BUY_FORMS[i][1];
@@ -1401,14 +1407,53 @@ function buyAsQty(item){
   });
   if (!ok||!tsp) return item.qty;
   // Prepped rounds up to a measure you'd buy or scoop: 1/4 cups, else tbsp
-  if (buyAs[gi.key]==='prepped') return fmtVolume(tsp>=12?Math.ceil(tsp/12-0.05)*12:Math.ceil(tsp/3-0.05)*3)+' '+f.prep;
-  if (WT_OZ[f.whole]) return fmtWeight(Math.ceil(tsp/f.tsp[f.whole]-0.05))+' '+f.label;
+  if (buyAs[gi.key]==='prepped'&&!f.fixed) return fmtVolume(tsp>=12?Math.ceil(tsp/12-0.05)*12:Math.ceil(tsp/3-0.05)*3)+' '+f.prep;
+  if (WT_OZ[f.whole]) return fmtWeight(Math.ceil(tsp/f.tsp[f.whole]-0.05))+(f.label?' '+f.label:'');
   var n=Math.ceil(tsp/f.tsp[f.whole]-0.25);  // sizes vary: a little over still fits in what you bought
   return Math.max(1,n)+(f.whole==='each'?'':' '+pluralUnit(f.whole,n));
 }
 function toggleBuyAs(key, evt){
   evt.stopPropagation();
   if (buyAs[key]==='prepped') delete buyAs[key]; else buyAs[key]='prepped';
+  saveSettings(); renderGrocery();
+}
+
+// ── Fresh or frozen ───────────────────────────────────────────────────────────
+// Produce that's often bought frozen gets a fresh/frozen switch per household
+// (frozenPref); corn and mixed berries default to frozen. Switching renames the
+// line, moves its section and merges it with any line already in that form.
+var FREEZABLE=/^(corn|pea|green bean|edamame|broccoli|cauliflower|mango|pineapple|cherry|mixed berry|blueberry|raspberry|strawberry|blackberry)$/;
+var FROZEN_DEFAULT=/^(corn|mixed berry)$/;
+var FROZEN_TSP={corn:{ear:36, each:36}};  // an ear of corn ~ 3/4 cup kernels
+// Item key without "frozen", or null if it can't switch (dried, canned, not freezable)
+function freezeKey(gi){
+  if (!gi||/^(dried|canned|fresh) /.test(gi.key)) return null;
+  var k=gi.key.replace(/^frozen /,'');
+  return FREEZABLE.test(k)?k:null;
+}
+// true/false once chosen (or a frozen default); null keeps what the recipe says
+function frozenChoice(k){ return k in frozenPref ? !!frozenPref[k] : FROZEN_DEFAULT.test(k) ? true : null; }
+function applyFrozenPref(item){
+  var gi=groceryItem(item.name), k=freezeKey(gi);
+  var frozen=!!gi&&/^frozen /.test(gi.key), want=k&&frozenChoice(k);
+  if (!k||want===null||want===frozen) return item;
+  var shown=gi.name.replace(/^frozen /i,''), qty=item.qty, conv=FROZEN_TSP[k];
+  if (conv&&qty){  // fresh corn by the ear, frozen by the cup (2 ears ~ 1 1/2 cups)
+    var tsp=0, rest=[];
+    String(qty).split(/\s*\+\s*/).forEach(function(part){
+      var p=parseIng(part), u=(p.unit||'').toLowerCase(); u=UNIT_ALIAS[u]||u;
+      var per=p.qty&&(VOL_TSP[u]||conv[u||'each']);
+      if (per) tsp+=p.qty*per; else rest.push(part);
+    });
+    var n=Math.ceil(tsp/conv.ear-0.25);
+    qty=(tsp?[frozen?Math.max(1,n)+' '+pluralUnit('ear',n):fmtVolume(tsp)]:[]).concat(rest).join(' + ');
+  }
+  if (frozen) return Object.assign({},item,{name:capFirst(shown),qty:qty,category:guessCategory(shown)});
+  return Object.assign({},item,{name:'Frozen '+shown.charAt(0).toLowerCase()+shown.slice(1),qty:qty,category:'Frozen'});
+}
+function toggleFrozen(k, nowFrozen, evt){
+  evt.stopPropagation();
+  frozenPref[k]=!nowFrozen;
   saveSettings(); renderGrocery();
 }
 
@@ -1422,7 +1467,7 @@ function consolidateGroceryList(list){
     if (!item||!item.name||!SALT_PEPPER_RE.test(item.name)) return [item];
     var qty=item.qty?String(item.qty).replace(/\s*\beach\b\s*/i,' ').trim():item.qty;
     return ['Salt','Black pepper'].map(function(n){ return Object.assign({},item,{name:n,qty:qty}); });
-  }));
+  })).map(function(item){ return item&&item.name?applyFrozenPref(item):item; });
   list.forEach(function(item){
     var gi=item&&item.name&&groceryItem(item.name);
     if (!gi){ out.push(item); return; }
@@ -2135,6 +2180,13 @@ function buildManualPlan() {
 }
 // Re-render plan + grocery from local data and save. Asks Claude to polish the
 // grocery list only when online.
+// Grocery tab button: recompute from the meals now, then let Claude refine it
+function rebuildGrocery() {
+  if (!currentPlan||!currentPlan.days) return;
+  recomputeGroceryLocal();
+  pushPlan(currentPlan);
+  scheduleGroceryRefresh();
+}
 function refreshPlanLocal() {
   recomputeGroceryLocal();
   renderPlan(currentPlan);
@@ -2602,6 +2654,7 @@ function renderGrocery() {
     +'<button class="export-btn primary" onclick="copyGrocery()">&#128203; Copy</button>'
     +'<button class="export-btn" onclick="shareGrocery()">&#8599; Share</button>'
     +'<button class="export-btn" onclick="copyGroceryLink(this)" title="Copy a link that opens straight to this grocery list">&#128279; Link</button>'
+    +(currentPlan&&currentPlan.days?'<button class="export-btn" onclick="rebuildGrocery()" title="Rebuild the list from the plan\'s meals">&#8635; Rebuild</button>':'')
     +'</div>';
   allCats.forEach(function(c){
     html+='<div class="grocery-section"><div class="grocery-cat-label"><span class="cat-dot" style="background:'+(CAT_DOT[c]||'#5a5a5a')+'"></span>'+esc(c)+'</div>';
@@ -2612,8 +2665,11 @@ function renderGrocery() {
         srcBtn='<button class="gi-info" data-sources="'+esc(JSON.stringify(item.sources))+'" onclick="toggleSrcPopover(event,this)" title="Used in...">ⓘ</button>';
       }
       // Whole/prepped switch for items that can be bought either way
-      var gi=groceryItem(item.name), f=gi&&buyForm(gi.key), formBtn='';
-      if (f){
+      var gi=groceryItem(item.name), f=gi&&buyForm(gi.key), formBtn='', fk=freezeKey(gi);
+      if (fk){
+        var isFrozen=/^frozen /.test(gi.key), other=isFrozen?'fresh':'frozen';
+        formBtn='<button class="gi-form" onclick="toggleFrozen(\''+esc(fk)+'\','+isFrozen+',event)" title="Buy '+other+' instead">&#8644; '+other+'</button>';
+      } else if (f&&!f.fixed){
         var prepped=buyAs[gi.key]==='prepped', other=prepped?(f.label||(f.whole==='each'?'whole':f.whole)):f.prep;
         formBtn='<button class="gi-form" onclick="toggleBuyAs(\''+esc(gi.key)+'\',event)" title="Buy '+esc(other)+' instead">&#8644; '+esc(other)+'</button>';
       }
