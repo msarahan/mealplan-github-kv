@@ -15,6 +15,8 @@ function json(data, status) {
   });
 }
 function err(msg, status) { return json({ error: msg }, status || 400); }
+// How often /generate sends a keep-alive space while Claude is working
+const KEEPALIVE_MS = 5000;
 
 import { MODEL, CLASSIFY_BATCH, MAX_OPTIMIZE_STEPS } from './config';
 
@@ -328,7 +330,7 @@ of its amounts across all "Uses" lines (e.g. salt used in two steps). Use those 
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
 
     const url  = new URL(request.url);
@@ -395,10 +397,32 @@ export default {
     }
 
     // ── POST /generate ───────────────────────────────────────────────────────
+    // A full week's plan can take Claude a couple of minutes. Waiting for all of it
+    // before answering let the connection time out (an HTML error page the app
+    // couldn't read), so answer at once, send a space every few seconds while
+    // Claude works, then the JSON. Leading whitespace is valid JSON. Failures come
+    // back as {error:{message}} too.
     if (request.method === 'POST' && path === '/generate') {
-      const resp = await callAnthropic(env, await request.json());
-      const data = await resp.json();
-      return json(data, resp.status);
+      const payload = await request.json();
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const enc = new TextEncoder();
+      const keepAlive = setInterval(() => { writer.write(enc.encode(' ')).catch(() => {}); }, KEEPALIVE_MS);
+      const finish = (async () => {
+        let body;
+        try {
+          const resp = await callAnthropic(env, payload);
+          const text = await resp.text();
+          try { body = JSON.parse(text); }
+          catch { body = { error: { message: `Claude's API returned an unreadable reply (HTTP ${resp.status}). Please try again.` } }; }
+        } catch (e) {
+          body = { error: { message: 'Could not reach Claude: ' + (e?.message || e) } };
+        }
+        clearInterval(keepAlive);
+        try { await writer.write(enc.encode(JSON.stringify(body))); await writer.close(); } catch {}
+      })();
+      if (ctx?.waitUntil) ctx.waitUntil(finish);
+      return new Response(readable, { headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
     }
 
     // ── POST /parse-recipe ───────────────────────────────────────────────────
