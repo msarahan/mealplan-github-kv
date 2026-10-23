@@ -14,7 +14,7 @@ mealplan-github-kv/
 │   └── index.html        ← Single-file app (HTML + CSS + JS), served as static asset
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml    ← CI: deploys worker + sets ANTHROPIC_API_KEY secret on every push to main
+│       └── deploy.yml    ← CI: deploys worker with the ANTHROPIC_API_KEY secret on every push to main
 ├── wrangler.jsonc         ← Cloudflare Worker config (assets, KV binding)
 ├── vitest.config.mts     ← Vitest config using @cloudflare/vitest-pool-workers
 ├── package.json
@@ -32,7 +32,8 @@ mealplan-github-kv/
 - **Local dev**: `npx wrangler dev` serves both frontend and API locally
 
 ## CI/CD
-- Push to `main` → GitHub Actions runs `npm ci`, `wrangler deploy`, then `wrangler secret put ANTHROPIC_API_KEY`
+- Push to `main` → GitHub Actions runs `npm ci`, then `npm run deploy` with `DEPLOY_ARGS=--secrets-file …` so `ANTHROPIC_API_KEY` is uploaded with the deployment (a separate `wrangler secret put` fails when Cloudflare's Git build has uploaded a newer version in the meantime)
+- Cloudflare's Git integration (Workers Builds) also builds this Worker, including PR branches
 - Required GitHub Actions secrets: `CLOUDFLARE_API_TOKEN`, `ANTHROPIC_API_KEY`
 - Tests: `npm test` (vitest, runs inside Miniflare Workers runtime)
 
