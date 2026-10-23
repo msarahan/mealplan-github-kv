@@ -1702,8 +1702,12 @@ function freshFromCanned(item){
 // The list as shown: canned items the household buys fresh are swapped in, merged
 // with any line already buying that (more chicken breast)
 function groceryView(list){
-  var rest=[], swapped=[];
-  list.forEach(function(item){ var v=freshFromCanned(item); if (v) swapped.push(v); else rest.push(item); });
+  var rest=[], swapped=[], dishes=plannedDishIndex(currentPlan);
+  list.forEach(function(item){
+    if (item&&item.name&&isPlannedDishRef(item.name,dishes,[])) return;  // a piece of a planned dish (Claude's list)
+    var wk=item&&item.name&&groceryItem(item.name); if (wk&&isTapWater(wk.key)) return;  // tap water isn't bought
+    var v=freshFromCanned(item); if (v) swapped.push(v); else rest.push(item);
+  });
   swapped.forEach(function(v){
     var k=groceryItem(v.name).key;
     for (var i=0;i<rest.length;i++){
@@ -2160,7 +2164,7 @@ function groceryLine(ing){
   // Lemon and lime wedges: about 8 to a fruit
   var wedge=/^(lemon|lime) wedges?$/i.exec(name);
   if (wedge&&p.qty&&!p.unit){ name=wedge[1]; p.qty=p.qty/8; }
-  var gi=groceryItem(name,p.unit); if(!gi) return null;
+  var gi=groceryItem(name,p.unit); if(!gi||isTapWater(gi.key)) return null;
   var k=gi.key, u=(p.unit||'').toLowerCase();
   // Buy whole lemons and limes for their juice (about 3 and 2 tbsp each)
   var juice=/^(lemon|lime) juice$/.exec(k);
@@ -2195,12 +2199,48 @@ function fmtGroceryTotal(m){
   return parts.join(' + ');
 }
 // Scaled grocery lines for each cooked meal: [{di, meal, lines}]
+// ── Dishes used as ingredients ────────────────────────────────────────────────
+// "1 square baked blueberry oatmeal" is a piece of a dish made elsewhere in the plan.
+// Its groceries are counted with that dish, so it isn't bought. Skipped only when the
+// name matches another planned dish (2+ words, any order, plurals and filler aside)
+// and it reads as a portion of it ("square", "slice", "serving", "leftover", ...), so
+// "1 cup Greek yogurt" stays even next to a dish called "Greek Yogurt".
+var PORTION_WORDS='squares?|slices?|servings?|portions?|pieces?|bars?|wedges?|muffins?|bowls?|helpings?';
+var PORTION_RE=new RegExp('^('+PORTION_WORDS+')\\b');
+var MADE_RE=/\b(leftovers?|prepared|made|homemade|reserved|batch)\b/;
+function dishTokens(s){
+  var skip=new RegExp('^(a|an|the|of|from|with|leftovers?|prepared|made|ahead|homemade|reserved|batch|'+PORTION_WORDS+')$');
+  return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\([^)]*\)/g,' ')
+    .replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(function(w){ return w&&!skip.test(w); }).map(singular).sort().join(' ');
+}
+// {tokens: [dish, ...]} for every planned dish (mains and sides) with a 2+ word name
+function plannedDishIndex(plan){
+  var idx={};
+  if (plan&&plan.days) plan.days.forEach(function(day){ day.meals.forEach(function(m){
+    mealDishes(m).forEach(function(d){ var t=dishTokens(d.name||''); if (t.indexOf(' ')>0) (idx[t]=idx[t]||[]).push(d); });
+  }); });
+  return idx;
+}
+// Is this ingredient (or grocery item name) a portion of another planned dish? `own`
+// are the dishes it belongs to, which never count.
+function isPlannedDishRef(ing, idx, own){
+  var text=String(ing), p=parseIng(text), name=(p.rest||text).split(',')[0].trim().toLowerCase();
+  var portion=PORTION_RE.test((p.unit||'').toLowerCase())||PORTION_RE.test(name)||MADE_RE.test(text.toLowerCase());
+  var hits=portion&&idx[dishTokens(name)];
+  return !!hits&&hits.some(function(d){ return own.indexOf(d)<0; });
+}
+// Water from the tap isn't bought; distilled, sparkling, coconut and the like are
+function isTapWater(key){
+  return /^((hot|cold|warm|lukewarm|boiling|ice|ice-cold|iced|tap|filtered|room temperature|plain)\s+)*water$/.test(key);
+}
 function planGroceryLines(plan){
-  var out=[];
+  var out=[], dishes=plannedDishIndex(plan);
   plan.days.forEach(function(day,di){
     day.meals.forEach(function(meal){
       if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
-      var lines=scaleIngs(groceryIngs(mealEffectiveIngs(meal)),mealCookServings(meal,di))  // main + sides
+      var own=mealDishes(meal);
+      var ings=mealEffectiveIngs(meal).filter(function(i){ return !isPlannedDishRef(i,dishes,own); });  // main + sides
+      var lines=scaleIngs(groceryIngs(ings),mealCookServings(meal,di))
         .map(groceryLine).filter(Boolean);
       out.push({di:di, day:day, meal:meal, lines:lines});
     });
