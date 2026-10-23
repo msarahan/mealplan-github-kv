@@ -1356,7 +1356,7 @@ var GROCERY_SYNONYMS={
   'corn kernel':'corn','corn on the cob':'corn','sweet corn':'corn','ear corn':'corn',
   'napa cabbage':'cabbage','green cabbage':'cabbage','chinese cabbage':'cabbage','savoy cabbage':'cabbage',
   'broccoli floret':'broccoli','broccoli crown':'broccoli','broccoli head':'broccoli',
-  'grape tomato':'cherry tomato'
+  'grape tomato':'cherry tomato','peeled tomato':'whole peeled tomato'
 };
 function singular(w){
   if (/(ss|us|is)$/.test(w)) return w;
@@ -1384,7 +1384,7 @@ function groceryItem(name, unit){
   n=n.replace(FORM_RE,' ');
   if (!form&&!/\bcooked\b/.test(n)&&beanType(n)) form='canned';  // ready-to-use beans come in cans
   // So do these, however the recipe words them ("1 cup crushed tomatoes")
-  if (!form&&/\b((diced|crushed|stewed|fire[- ]roasted|whole peeled) tomato(es)?|tomato (paste|sauce|puree)|coconut milk)\b/.test(n)) form='canned';
+  if (!form&&/\b((diced|crushed|stewed|fire[- ]roasted|whole peeled|peeled|san marzano) tomato(es)?|tomato (paste|sauce|puree)|coconut milk)\b/.test(n)) form='canned';
   // Canned diced and crushed tomatoes are different products, so they keep their prep words
   if (form!=='canned') n=n.replace(PREP_WORDS,' ');
   n=n.replace(/[^a-z0-9&'\- ]/g,' ').replace(/\s+/g,' ').trim()
@@ -1544,8 +1544,14 @@ function cannedQty(key, qty){
   var n=Math.max(1,Math.ceil(total/cups-0.1));
   return n+' ('+size+') '+(n>1?'cans':'can');
 }
-// Names as shown: canned goods are listed under Canned & Preserved, so no "Canned" prefix
-function groceryDisplayName(item){ return String(item.name).replace(/^canned\s+/i,'').replace(/^./,function(c){ return c.toUpperCase(); }); }
+// Names as shown: canned goods are listed under Canned & Preserved, so "Canned" comes off
+// when the rest still says what to buy ("Chickpeas", "Diced tomatoes"), but stays on a
+// name that would read as fresh produce ("Canned tomatoes", "Canned corn")
+function groceryDisplayName(item){
+  var name=String(item.name), rest=name.replace(/^canned\s+/i,'');
+  if (rest===name||guessCategory(rest)==='Produce') return name;
+  return rest.charAt(0).toUpperCase()+rest.slice(1);
+}
 function buyAsQty(item){
   var gi=item.name&&groceryItem(item.name), f=gi&&buyForm(gi.key);
   if (gi&&/^canned /.test(gi.key)&&item.qty) return cannedQty(gi.key,item.qty)||item.qty;
@@ -1691,7 +1697,7 @@ var CAT_RULES=[
   [/^dried (basil|parsley|cilantro|mint|dill|thyme|oregano|rosemary|sage|tarragon|chives|herbs?)\b/,'Herbs & Spices'],
   [/\b(peanut butter|almond butter|tahini|baking powder|baking soda)\b/,'Pantry'],
   [/\b(sugar snap|snap peas?|snow peas?|sweet potato(es)?|sweet corn)\b/,'Produce'],  // not "sugar" in Pantry
-  [/\b(cans?|broth|stock|tomato paste|tomato sauce|diced tomatoes|crushed tomatoes|coconut milk|chickpeas|black beans|kidney beans|cannellini|pinto beans|refried beans)\b/,'Canned & Preserved'],
+  [/\b(cans?|broth|stock|tomato paste|tomato sauce|(diced|crushed|stewed|peeled|fire[- ]roasted|san marzano) tomatoes|coconut milk|chickpeas|black beans|kidney beans|cannellini|pinto beans|refried beans)\b/,'Canned & Preserved'],
   [/\b(salt|black pepper|peppercorns?|cumin|paprika|oregano|thyme|rosemary|cinnamon|nutmeg|turmeric|powder|chili flakes|red pepper flakes|crushed red pepper|garam masala|seasoning|spices?|bay lea(f|ves)|cayenne( pepper)?|coriander|ground ginger|ground cloves)\b/,'Herbs & Spices'],
   [/\b(chicken|beef|pork|turkey|lamb|salmon|cod|tilapia|halibut|tuna|shrimp|prawns?|fish|tofu|tempeh|sausages?|bacon|ham|steak)\b/,'Protein'],
   [/\b(milk|cheese|mozzarella|parmesan|cheddar|feta|ricotta|butter|yogurt|cream|eggs?|half-and-half|jack|swiss|gruyere|colby|provolone|fontina|gouda|havarti|pecorino|asiago|romano|grana padano)\b/,'Dairy & Eggs'],
@@ -2270,6 +2276,7 @@ function buildGroceryPrompt(plan) {
     +' show TOTAL RECIPE QUANTITY in cooking units (e.g. "1½ cups rolled oats", "¾ cup quinoa", "2 cups brown rice", "½ cup walnuts", "2 tsp cumin").'
     +' Users may have a partial bag open — they need the amount, not the store unit.'
     +'\n- Canned & Preserved: show can count AND drained volume, e.g. "2 cans (~3 cups drained)".'
+    +' Always name the style of canned tomatoes (diced, crushed, whole peeled, fire-roasted, sauce, paste) — never just "canned tomatoes"; if a recipe doesn\'t say, pick what suits it.'
     +'\n\nEach item must include a "sources" array listing up to 3 meals that use it (omit minor uses if more than 3): {"meal":"Monday Dinner: Lemon Herb Salmon","qty":"6 oz"}.'
     +'\n\nReturn ONLY valid JSON:'
     +'{"groceryList":[{"name":"Rolled oats","qty":"1½ cups","category":"Grains & Bread","sources":[{"meal":"Monday Breakfast: Overnight Oats","qty":"½ cup"},{"meal":"Wednesday Breakfast: Granola Bowl","qty":"1 cup"}]},{"name":"Olive oil","qty":"¾ cup","category":"Pantry","sources":[{"meal":"Monday Dinner: Salmon","qty":"2 tbsp"},{"meal":"Tuesday Lunch: Salad","qty":"1 tbsp"}]}]}'
