@@ -1430,7 +1430,7 @@ function fmtWeight(oz){ return oz>=16 ? fmtQty(oz/16)+' lb' : fmtQty(oz)+' oz'; 
 // One line per thing you buy. Prep, size and quality words don't make a new item
 // ("2 cloves garlic, minced" and "1 clove garlic" are both garlic), but how it's
 // stored does: fresh is the default, and frozen, dried and canned stay separate.
-var PREP_WORDS=/\b(fresh|freshly|chopped|finely|roughly|coarsely|thinly|sliced|diced|minced|grated|shredded|crumbled|crushed|cubed|softened|melted|chilled|peeled|seeded|halved|quartered|trimmed|rinsed|drained|packed|loosely|lightly|juiced|zested|large|medium|small|ripe|raw|boneless|skinless|extra[- ]virgin|organic|heaping|divided|plus more|to taste|for serving|for garnish|optional)\b/g;
+var PREP_WORDS=/\b(fresh|freshly|chopped|finely|roughly|coarsely|thinly|sliced|diced|minced|grated|shredded|crumbled|crushed|cubed|softened|melted|chilled|washed|prewashed|pre-washed|triple-washed|peeled|seeded|halved|quartered|trimmed|rinsed|drained|packed|loosely|lightly|juiced|zested|large|medium|small|ripe|raw|boneless|skinless|extra[- ]virgin|organic|heaping|divided|plus more|to taste|for serving|for garnish|optional)\b/g;
 var FORM_RE=/(^|\s)(frozen|dried|canned)\b/;  // not "sun-dried"
 // Cheeses sold by name, with or without the word "cheese"
 var SHRED_CHEESES='cheddar|mozzarella|monterey jack|pepper jack|colby jack|jack|swiss|gruyere|colby|provolone|fontina|gouda|havarti';
@@ -1448,7 +1448,8 @@ var GROCERY_SYNONYMS={
   'grape tomato':'cherry tomato','peeled tomato':'whole peeled tomato',
   'butter':'unsalted butter',  // the household buys unsalted; "salted butter" stays its own line
   'ginger':'ginger root','ginger knob':'ginger root','lime wedge':'lime','lemon wedge':'lemon',
-  'vanilla protein powder':'protein powder','chocolate protein powder':'protein powder','unflavored protein powder':'protein powder'
+  'vanilla protein powder':'protein powder','chocolate protein powder':'protein powder','unflavored protein powder':'protein powder',
+  'mixed green':'spring mix','salad green':'spring mix','salad mix':'spring mix','mixed salad green':'spring mix','mesclun':'spring mix','mesclun mix':'spring mix','baby green':'spring mix','mixed baby green':'spring mix'
 };
 function singular(w){
   if (/(ss|us|is)$/.test(w)) return w;
@@ -1486,7 +1487,7 @@ function groceryItem(name, unit){
     .replace(/\s+(for|to) (serve|serving|garnish|top|topping)\b.*$/,'')
     .replace(/^(a|an|the|of) /,'')
     // A measure left in the name ("a bunch of cilantro", "small bunch cilantro", "inch piece ginger")
-    .replace(/^(inch(es)? )?(bunch|bunches|bunchs|sprigs?|handfuls?|stalks?|heads?|crowns?|blocks?|balls?|cloves?|pieces?|knobs?|scoops?|inch(es)?|pinch|dash)( of)? (?=\S)/,'')
+    .replace(/^(inch(es)? )?(bunch|bunches|bunchs|sprigs?|handfuls?|stalks?|heads?|crowns?|blocks?|balls?|cloves?|pieces?|knobs?|scoops?|packages?|pkgs?|bags?|containers?|clamshells?|boxe?s?|inch(es)?|pinch|dash)( of)? (?=\S)/,'')
     .replace(/\bmozarella\b/,'mozzarella')  // common misspelling
     // Varieties that are one item: Italian parsley, baby spinach
     .replace(/\b(italian|flat[- ]leaf|curly)\s+(parsley)\b/,'$2')
@@ -1501,7 +1502,7 @@ function groceryItem(name, unit){
   if (base==='pepper'&&(!unit||/^(tsp|tbsp|pinch|dash)$/i.test(unit))) base='black pepper';
   if (form==='canned'&&base==='chicken breast') base='chicken';  // canned chicken is breast meat either way
   // A synonym shows its common name, plural if the recipe's was ("green onions" → "scallions")
-  var shown=base===words.join(' ')?n:(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan|cabbage|broccoli|ginger root|lime|lemon)$/.test(base)?pluralWord(base):base);
+  var shown=base===words.join(' ')?n:(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan|cabbage|broccoli|ginger root|lime|lemon|spring mix)$/.test(base)?pluralWord(base):base);
   if (chile) base=chile[1];  // "jalapeño peppers" and "jalapeños" are one item; the name reads as written
   return {key:(form?form+' ':'')+base, name:capFirst((form?form+' ':'')+shown)};
 }
