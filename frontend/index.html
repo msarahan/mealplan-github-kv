@@ -2278,6 +2278,16 @@ function restoreFromHistory(idx){
 
 // ── API ───────────────────────────────────────────────────────────────────────
 var OFFLINE_MSG="You're offline — this needs an internet connection. You can still pick meals from your saved recipes.";
+// A server reply as JSON. An HTML error page (a timeout, a crash) otherwise surfaces as
+// Safari's "The string did not match the expected pattern"; say what happened instead.
+async function readJsonResponse(resp){
+  var text=await resp.text();
+  try { return JSON.parse(text); }
+  catch(e){
+    var what=resp.status===524||resp.status===504?' (it timed out)':resp.status>=500?' (server error)':'';
+    throw new Error('The server sent an unreadable reply'+(resp.ok?'':', HTTP '+resp.status)+what+'. Please try again.');
+  }
+}
 async function callClaude(prompt, maxTokens) {
   // The Worker sets the model; this one is only used when calling Anthropic directly.
   // max_tokens covers thinking + answer, so keep a generous floor.
@@ -2291,8 +2301,8 @@ async function callClaude(prompt, maxTokens) {
     if (WORKER_ON) { resp=await fetch(WORKER_URL+'/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
     else { resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
   } catch(e) { setOnline(false); throw new Error(OFFLINE_MSG); }
-  var data=await resp.json();
-  if (data.error) throw new Error(data.error.message);
+  var data=await readJsonResponse(resp);
+  if (data.error) throw new Error(data.error.message||data.error);
   if (data.stop_reason==='refusal') throw new Error('Claude declined this request');
   var raw=data.content.map(function(b){return b.text||'';}).join('');
   var s=raw.indexOf('{'),e=raw.lastIndexOf('}');
@@ -3444,7 +3454,7 @@ async function classifyRecipes(){
     try{
       var resp=await fetch(WORKER_URL+'/classify-diets',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({recipes:batch.map(function(r){ return {id:r.id,name:r.name,ingredients:r.ingredients||[]}; })})});
-      var data=await resp.json();
+      var data=await readJsonResponse(resp);
       if(data.error) throw new Error(data.error.message||data.error);
       data.results.forEach(function(res){
         var r=savedRecipes.find(function(x){ return x.id===res.id; });
@@ -3601,7 +3611,7 @@ async function parseRecipe(){
     if(WORKER_ON){
       var body=urlVal?{url:urlVal}:{text:txtVal};
       var resp=await fetch(WORKER_URL+'/parse-recipe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      recipe=await resp.json();
+      recipe=await readJsonResponse(resp);
       if(recipe.error) throw new Error(recipe.error);
     } else {
       if(!txtVal){if(statusEl)statusEl.textContent='URL parsing requires the Worker. Paste text instead.';btn.disabled=false;return;}
@@ -3643,7 +3653,7 @@ async function bulkImportRecipes(urls){
     if(savedRecipes.some(function(r){ return r.sourceUrl&&recipeUrlKey(r.sourceUrl)===recipeUrlKey(url); })){ skipped++; continue; }
     try{
       var resp=await fetch(WORKER_URL+'/parse-recipe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})});
-      var recipe=await resp.json();
+      var recipe=await readJsonResponse(resp);
       if(recipe.error) throw new Error(recipe.error.message||recipe.error);
       if(!recipe.name) throw new Error('No recipe found');
       if(savedRecipes.some(function(r){ return r.name.toLowerCase()===recipe.name.toLowerCase(); })){ skipped++; continue; }
@@ -3677,7 +3687,7 @@ async function parsePdfRecipe(input){
   fd.append('pdf',file);
   try{
     var resp=await fetch(WORKER_URL+'/parse-pdf',{method:'POST',body:fd});
-    var data=await resp.json();
+    var data=await readJsonResponse(resp);
     console.debug('[PDF import] raw worker response:', JSON.stringify(data, null, 2));
     if(data.error) throw new Error(data.error);
     var recipes=Array.isArray(data.recipes)?data.recipes:[data];
@@ -3951,7 +3961,7 @@ async function optimizeDish(k){
   try{
     var resp=await fetch(WORKER_URL+'/optimize-steps',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({name:d.name, ingredients:effectiveIngs(d), steps:d.steps||[], notes:notesHolder(d).cookingNotes||[]})});
-    var data=await resp.json();
+    var data=await readJsonResponse(resp);
     if(data.error) throw new Error(data.error.message||data.error);
     var opt={hash:cookHash(d), steps:data.steps, changes:data.changes||[]};
     d.optimized=opt;
@@ -4255,7 +4265,7 @@ async function requestRevision(d, feedback){
     var resp=await fetch(WORKER_URL+'/revise-recipe',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({recipe:{name:d.name,ingredients:d.ingredients||[],steps:d.steps||[],prepMins:d.prepMins,
         calories:d.calories,protein:d.protein,carbs:d.carbs,fat:d.fat,notes:d.notes||''},feedback:feedback,notes:holder.cookingNotes||[]})});
-    var data=await resp.json();
+    var data=await readJsonResponse(resp);
     if(data.error) throw new Error(data.error.message||data.error);
     revisions[key]={feedback:feedback, rev:data}; delete fbDrafts[key];
   }catch(e){ revisions[key]={feedback:feedback, error:e.message}; }

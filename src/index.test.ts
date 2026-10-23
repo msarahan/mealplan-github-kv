@@ -239,14 +239,37 @@ describe('Anthropic calls', () => {
     expect(calls[0].headers.get('anthropic-beta')).toBe('server-side-fallback-2026-07-01');
   });
 
+  const generate = () => SELF.fetch(`${BASE}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 100, messages: [] }),
+  });
+
   it('/generate overrides a stale model from the client', async () => {
     const calls = mockAnthropic({ stop_reason: 'end_turn', content: [] });
-    await SELF.fetch(`${BASE}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 100, messages: [] }),
-    });
+    await (await generate()).text();
     expect(calls[0].body.model).toBe(MODEL);
+  });
+
+  it('/generate streams back Claude\'s reply as JSON', async () => {
+    const reply = { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"days":[]}' }] };
+    mockAnthropic(reply);
+    const res = await generate();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/json');
+    expect(JSON.parse(await res.text())).toEqual(reply);
+  });
+
+  it('/generate turns a non-JSON reply into a JSON error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('<html>Bad gateway</html>', { status: 502 }));
+    const body = JSON.parse(await (await generate()).text());
+    expect(body.error.message).toContain('HTTP 502');
+  });
+
+  it('/generate turns a network failure into a JSON error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('connection reset'));
+    const body = JSON.parse(await (await generate()).text());
+    expect(body.error.message).toContain('connection reset');
   });
 
   it('reports "No recipe found" when the page has no recipe', async () => {
