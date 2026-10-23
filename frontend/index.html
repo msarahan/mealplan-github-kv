@@ -1449,6 +1449,8 @@ var GROCERY_SYNONYMS={
   'butter':'unsalted butter',  // the household buys unsalted; "salted butter" stays its own line
   'ginger':'ginger root','ginger knob':'ginger root','lime wedge':'lime','lemon wedge':'lemon',
   'vanilla protein powder':'protein powder','chocolate protein powder':'protein powder','unflavored protein powder':'protein powder',
+  'red pepper flake':'red pepper flakes','crushed red pepper flake':'red pepper flakes','chili flake':'red pepper flakes',
+  'chile flake':'red pepper flakes','chilli flake':'red pepper flakes','crushed red pepper':'red pepper flakes',
   'mixed green':'spring mix','salad green':'spring mix','salad mix':'spring mix','mixed salad green':'spring mix','mesclun':'spring mix','mesclun mix':'spring mix','baby green':'spring mix','mixed baby green':'spring mix'
 };
 function singular(w){
@@ -1501,6 +1503,10 @@ function groceryItem(name, unit){
   var syn=GROCERY_SYNONYMS[base];
   base=syn||base.replace(/^(cilantro|parsley|basil|mint|thyme|oregano|rosemary|sage|dill|tarragon) (leaf|leave|sprig|stem)$/,'$1');
   if (base==='pepper'&&(!unit||/^(tsp|tbsp|pinch|dash)$/i.test(unit))) base='black pepper';
+  // The amount tells a spice from a vegetable: "1/4 tsp red pepper" is flakes,
+  // "1 red pepper" or "1 cup chopped red pepper" is a bell pepper
+  if (base==='red pepper'&&/^(tsp|pinch|dash)$/i.test(unit||'')) base='red pepper flakes';
+  else if (/^(red|green|yellow|orange) pepper$/.test(base)) base=base.replace(/ pepper$/,' bell pepper');
   if (form==='canned'&&base==='chicken breast') base='chicken';  // canned chicken is breast meat either way
   // A synonym shows its common name, plural if the recipe's was ("green onions" → "scallions")
   var shown=base===words.join(' ')?n:(syn&&/s$/.test(n)&&!/s$/.test(base)&&!/^(salt|black pepper|corn|parmesan|cabbage|broccoli|ginger root|lime|lemon|spring mix)$/.test(base)?pluralWord(base):base);
@@ -1961,7 +1967,7 @@ function consolidateGroceryList(list){
     return ['Salt','Black pepper'].map(function(n){ return Object.assign({},item,{name:n,qty:qty}); });
   })).map(function(item){ return item&&item.name?applyFrozenPref(dryGrainItem(citrusItem(unitFromName(nameWithoutAmount(item))))):item; });
   list.forEach(function(item){
-    var gi=item&&item.name&&groceryItem(item.name);
+    var gi=item&&item.name&&groceryItem(item.name, item.qty&&parseIng(String(item.qty)).unit);  // the unit tells "red pepper" flakes from a bell pepper
     if (!gi){ out.push(item); return; }
     item.name=gi.name;
     var guess=guessCategory(gi.name);  // the app's rules over Claude's when they know the item
