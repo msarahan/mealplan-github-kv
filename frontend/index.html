@@ -3848,6 +3848,21 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js', {updateViaCache:'none'}).catch(function(){});
   });
 }
+// An iOS home screen app resumes the open page instead of reloading it, and has no
+// pull-to-refresh, so a deploy never reaches it. Note the deployment this page loaded
+// with; whenever the app comes back to the foreground, reload if a newer one is live.
+var _loadedDeploy=null;
+function deployedVersion(){
+  return fetch('/app-version',{cache:'no-store'})
+    .then(function(r){ return r.ok&&!r.redirected?r.json():null; })
+    .then(function(d){ return d&&d.version||null; })
+    .catch(function(){ return null; });
+}
+deployedVersion().then(function(v){ _loadedDeploy=v; });
+document.addEventListener('visibilitychange',function(){
+  if (document.visibilityState!=='visible'||!_loadedDeploy||!isOnline()) return;
+  deployedVersion().then(function(v){ if (v&&v!==_loadedDeploy) location.reload(); });
+});
 (function(){ var el=document.getElementById('app-version-footer'); if(el){ var v=window.__VERSION__||''; el.textContent=(/^__/).test(v)?'':v; } })();
 
 var _params     = new URLSearchParams(location.search);

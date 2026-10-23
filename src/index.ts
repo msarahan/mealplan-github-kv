@@ -335,6 +335,15 @@ export default {
     const path = url.pathname;
     const seg  = path.split('/').filter(Boolean); // ['plan','ABC123']
 
+    // ── GET /app-version ─────────────────────────────────────────────────────
+    // This deployment's id, so a page that stays open for days (an iOS home
+    // screen app resumes instead of reloading) can tell a new version shipped
+    if (path === '/app-version' && request.method === 'GET') {
+      const res = json({ version: env.CF_VERSION_METADATA?.id ?? null });
+      res.headers.set('Cache-Control', 'no-store');
+      return res;
+    }
+
     // ── KV helpers ───────────────────────────────────────────────────────────
     const kvGet = async (key) => {
       const v = await env.NOURISH_KV.get(key);
