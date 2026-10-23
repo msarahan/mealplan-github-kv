@@ -1318,18 +1318,33 @@ function groceryItem(name, unit){
   if (chile) base=chile[1];  // "jalapeño peppers" and "jalapeños" are one item; the name reads as written
   return {key:(form?form+' ':'')+base, name:capFirst((form?form+' ':'')+shown)};
 }
+// "salt and pepper", "1/2 tsp each kosher salt & freshly ground black pepper"
+var SALT_PEPPER_RE=/\bsalt\s*(and|&|\+|\/)\s*([a-z-]+\s+){0,3}pepper\b/i;
 // Recipe wording that hides what to buy: "juice of 1 lemon" is a lemon,
 // "salt and pepper to taste" is two items
 function groceryIngs(ings){
   return [].concat.apply([],ings.map(function(i){
     i=String(i).replace(/^\s*(?:the\s+)?(?:juice|zest)(?:\s+and\s+(?:juice|zest))?\s+of\s+/i,'');
-    return /^\s*(kosher |sea )?salt\s+(and|&)\s+(black\s+)?pepper\b/i.test(i)?['salt','black pepper']:[i];
+    return SALT_PEPPER_RE.test(i)?['salt','black pepper']:[i];
   }));
 }
 // Add two grocery qty strings when they share a measure ("1/2 cup" + "2 tbsp"); else "a + b"
 function combineQtys(a,b){
   if (!a) return b; if (!b) return a;
-  var pa=parseIng(String(a)), pb=parseIng(String(b));
+  // "to taste" adds nothing to a measured amount
+  if (!parseIng(String(b)).qty) return a;
+  if (!parseIng(String(a)).qty) return b;
+  // "1 cup + 2 cloves" plus "1 clove": add to the part with the same measure
+  var parts=String(a).split(/\s*\+\s*/);
+  for (var i=0;i<parts.length;i++){
+    var sum=addQty(parts[i],String(b));
+    if (sum){ parts[i]=sum; return parts.join(' + '); }
+  }
+  return a+' + '+b;
+}
+// The sum of two single amounts with the same kind of measure, or null
+function addQty(a,b){
+  var pa=parseIng(a), pb=parseIng(b);
   var ua=(pa.unit||'').toLowerCase(), ub=(pb.unit||'').toLowerCase();
   var restKey=function(r){ return r.toLowerCase().split(' ').map(singular).join(' '); };
   if (pa.qty&&pb.qty&&restKey(pa.rest)===restKey(pb.rest)){
@@ -1339,7 +1354,7 @@ function combineQtys(a,b){
     var u=UNIT_ALIAS[ua]||ua;
     if (u===(UNIT_ALIAS[ub]||ub)) return fmtQty(q)+(u?' '+pluralUnit(u,q):'')+tail;
   }
-  return a+' + '+b;
+  return null;
 }
 // ── Buy as whole or prepped ───────────────────────────────────────────────────
 // Items that can be bought whole (a bunch, a head, by count) or already prepped
@@ -1389,6 +1404,12 @@ function toggleBuyAs(key, evt){
 function consolidateGroceryList(list){
   if (!Array.isArray(list)) return list;
   var byKey={}, out=[];
+  // "Salt and black pepper" is two items, each with the listed amount
+  list=[].concat.apply([],list.map(function(item){
+    if (!item||!item.name||!SALT_PEPPER_RE.test(item.name)) return [item];
+    var qty=item.qty?String(item.qty).replace(/\s*\beach\b\s*/i,' ').trim():item.qty;
+    return ['Salt','Black pepper'].map(function(n){ return Object.assign({},item,{name:n,qty:qty}); });
+  }));
   list.forEach(function(item){
     var gi=item&&item.name&&groceryItem(item.name);
     if (!gi){ out.push(item); return; }
