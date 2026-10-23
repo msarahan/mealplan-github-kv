@@ -20,13 +20,15 @@ jobs:
 
       - run: npm ci
 
+      # The API key is uploaded with the deployment itself. A separate
+      # `wrangler secret put` fails whenever another build (Cloudflare's Git
+      # integration) has uploaded a newer version in the meantime.
       - name: Deploy to Cloudflare Workers
-        run: npm run deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-      - name: Set ANTHROPIC_API_KEY secret
-        run: echo "$ANTHROPIC_API_KEY" | npx wrangler secret put ANTHROPIC_API_KEY
+        run: |
+          trap 'rm -f "$RUNNER_TEMP/secrets.json"' EXIT
+          jq -n --arg key "$ANTHROPIC_API_KEY" '{ANTHROPIC_API_KEY: $key}' > "$RUNNER_TEMP/secrets.json"
+          npm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEPLOY_ARGS: --secrets-file ${{ runner.temp }}/secrets.json
