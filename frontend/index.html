@@ -69,6 +69,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);mi
 #src-popover .sp-qty{font-weight:500;white-space:nowrap}
 .gi-info{background:none;border:none;cursor:pointer;font-size:15px;color:var(--sage-mid);padding:0 0 0 6px;line-height:1;flex-shrink:0;opacity:.8}
 .gi-info:hover{color:var(--sage);opacity:1}
+.gi-form{background:none;border:1px solid var(--sand-dark);border-radius:10px;cursor:pointer;font-size:10px;font-family:'DM Sans',sans-serif;color:var(--ink-light);padding:1px 7px;margin-left:6px;flex-shrink:0;white-space:nowrap}
+.gi-form:hover{color:var(--sage);border-color:var(--sage-mid)}
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;font-family:'DM Sans',sans-serif;z-index:999;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
 .modal-bg.open{display:flex}
@@ -681,6 +683,7 @@ var libraryShare    = 'some';  // off | some | most: how much of a generated pla
 var beanPrep        = 'can';   // can | soak | pressure: canned beans, or cook dried beans in batches
 var prepDays        = [];      // preferred make-ahead days, 0=Mon..6=Sun; empty = no preference
 var mealNames       = {};      // custom display names by meal type, e.g. {dinner:'Supper'}
+var buyAs           = {};      // grocery form by item key, e.g. {parsley:'prepped'}; default is whole
 var checkedItems    = new Set();
 var customItems     = [];
 var savedRecipes    = [];
@@ -837,7 +840,7 @@ function settingsObj() {
     activeDiets: Array.from(activeDiets), optPriority: optPriority,
     planDays: planDays, mealsPerDay: mealsPerDay,
     householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays, mealNames: mealNames,
-    customItems: customItems,
+    buyAs: buyAs, customItems: customItems,
     cal:     document.getElementById('cal-target').value,
     protein: document.getElementById('protein-target').value,
     carbs:   document.getElementById('carbs-target').value
@@ -853,7 +856,7 @@ function saveSettings() {
 function resetSettings() {
   activeDiets = new Set(['climatarian']);
   optPriority = OPT_DEFS.map(function(o){ return o.id; });
-  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; mealNames = {}; customItems = [];
+  planDays = 7; mealsPerDay = 3; leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; mealNames = {}; buyAs = {}; customItems = [];
   householdServings = { breakfast:[2,2,2,2,2,4,4], lunch:[2,2,2,2,2,4,4], dinner:[4,4,4,4,4,4,4], snack:[2,2,2,2,2,2,2] };
   document.getElementById('days-slider').value = 7;
   document.getElementById('days-val').textContent = 7;
@@ -881,6 +884,7 @@ function applySettings(s) {
   if (s.beanPrep)          beanPrep = s.beanPrep;
   if (Array.isArray(s.prepDays)) prepDays = s.prepDays;
   if (s.mealNames&&typeof s.mealNames==='object') mealNames = s.mealNames;
+  if (s.buyAs&&typeof s.buyAs==='object') buyAs = s.buyAs;
   if (s.customItems)       customItems = s.customItems;
   document.getElementById('days-slider').value = planDays;
   document.getElementById('days-val').textContent = planDays;
@@ -1124,21 +1128,25 @@ function getSrv(t, d) { var c = householdServings[t]; if (!c) return 2; var v = 
 
 // ── Ingredient scaling ────────────────────────────────────────────────────────
 function parseIng(str) {
-  // Normalise unicode fractions → ASCII
-  str = str.replace(/½/g,'1/2').replace(/⅓/g,'1/3').replace(/⅔/g,'2/3')
+  // Normalise unicode fractions → ASCII ("1½" → "1 1/2", not "11/2")
+  str = str.replace(/(\d)(?=[½⅓⅔¼¾⅛⅜⅝⅞])/g,'$1 ').replace(/½/g,'1/2').replace(/⅓/g,'1/3').replace(/⅔/g,'2/3')
            .replace(/¼/g,'1/4').replace(/¾/g,'3/4').replace(/⅛/g,'1/8')
            .replace(/⅜/g,'3/8').replace(/⅝/g,'5/8').replace(/⅞/g,'7/8');
   // Normalise space-slash fractions: "6 /4" → "6/4", "1 / 2" → "1/2"
   str = str.replace(/(\d+)\s*\/\s*(\d+)/g, '$1/$2');
-  // Match: optional whole/decimal, optional fraction, optional unit word, rest
-  var m = str.match(/^(\d+(?:\.\d+)?(?!\/))?\s*(\d+\/\d+)?\s*([a-zA-Z]+)?\s*(.*)/);
+  // Match: optional whole/decimal, optional fraction, optional unit word, rest.
+  // The unit must be a whole word, so "jalapeño" isn't split at the ñ.
+  var m = str.match(/^(\d+(?:\.\d+)?(?!\/))?\s*(\d+\/\d+)?\s*([a-zA-Z]+(?![^\s.,;:)\]]))?\s*(.*)/);
   if (!m) return {qty:null,unit:'',rest:str};
   var whole = m[1]?parseFloat(m[1]):0, frac=0;
   if (m[2]){ var p=m[2].split('/'); frac=parseInt(p[0],10)/parseInt(p[1],10); }
-  var qty=(whole+frac)||null, unit=m[3]||'', rest=m[4]||'';
+  var qty=(whole+frac)||null, unit=m[3]||'', rest=(m[4]||'').replace(/^[.,]\s*/,'');  // "2 tbsp. oil", "2 cups, packed spinach"
   // Handle multi-word unit "fl oz"
   if (unit.toLowerCase()==='fl' && /^oz\b/i.test(rest)) { unit='fl oz'; rest=rest.replace(/^oz\s*/i,''); }
-  var known=['cup','cups','tbsp','tsp','oz','fl oz','lb','lbs','pound','pounds','quart','quarts','pint','pints','gallon','gallons','can','cans','bunch','head','heads','clove','cloves','slice','slices','piece','pieces','pinch','dash','stick','sticks','pkg','package','bag','jar','bottle'];
+  var known=['cup','cups','tbsp','tsp','oz','fl oz','lb','lbs','pound','pounds','quart','quarts','pint','pints','gallon','gallons','can','cans','bunch','bunches','head','heads','clove','cloves','slice','slices','piece','pieces','pinch','dash','stick','sticks','sprig','sprigs','stalk','stalks','handful','handfuls','ear','ears','pkg','package','bag','jar','bottle'];
+  // A size before the unit describes the unit: "1 small bunch cilantro" is 1 bunch
+  var sized=/^(small|medium|large)$/i.test(unit)&&rest.match(/^([a-zA-Z]+)\s*(.*)/);
+  if (sized&&known.indexOf(sized[1].toLowerCase())>=0){ unit=sized[1]; rest=sized[2]; }
   if (unit && known.indexOf(unit.toLowerCase())<0){ rest=unit+(rest?' '+rest:''); unit=''; }
   if (!qty&&!unit) return {qty:null,unit:'',rest:str};
   return {qty:qty,unit:unit,rest:rest.trim()};
@@ -1176,13 +1184,19 @@ function fmtQty(n) {
   if (whole===0) return fracStr;
   return whole+' '+fracStr;
 }
+// "bunch" → "bunches" for more than one; units already plural or abbreviated stay as they are
+function pluralUnit(u, q){
+  if (!(q>1)||/s$/.test(u)||u==='pkg') return u;
+  return u+(/(ch|sh|x)$/.test(u)?'es':'s');
+}
 function scaleIngs(ings, srv) {
   return ings.map(function(ing){
     var p=parseIng(ing); if(!p.qty) return ing;
     var q=p.qty*srv, unit=p.unit;
-    // Countable units read naturally at the scaled amount: "4 cloves", "1 cup"
-    var countable=/^(cup|clove|can|head|slice|piece|stick|bunch|pint|quart|gallon|bag|jar|bottle)s?$/i;
-    if (countable.test(unit)) unit=unit.replace(/s$/i,'')+(q>1?'s':'');
+    // Countable units read naturally at the scaled amount: "4 cloves", "1 cup", "2 bunches"
+    var countable=/^(cup|clove|can|head|slice|piece|stick|bunch|sprig|stalk|handful|ear|pint|quart|gallon|bag|jar|bottle)(es|s)?$/i;
+    var cm=unit.match(countable);
+    if (cm) unit=pluralUnit(cm[1],q);
     return (fmtQty(q)||'')+(unit?' '+unit:'')+' '+p.rest;
   });
 }
@@ -1244,7 +1258,8 @@ function ingKey(name){ return name.toLowerCase().replace(/^(a |an |the |fresh |d
 // Units that can be added together, as multiples of a base unit (tsp / oz)
 var VOL_TSP={tsp:1,teaspoon:1,teaspoons:1,tbsp:3,tablespoon:3,tablespoons:3,'fl oz':6,cup:48,cups:48};
 var WT_OZ={oz:1,ounce:1,ounces:1,lb:16,lbs:16,pound:16,pounds:16};
-var UNIT_ALIAS={cloves:'clove',cans:'can',heads:'head',slices:'slice',pieces:'piece',sticks:'stick',quarts:'quart',pints:'pint',gallons:'gallon',package:'pkg'};
+var UNIT_ALIAS={cloves:'clove',cans:'can',heads:'head',slices:'slice',pieces:'piece',sticks:'stick',quarts:'quart',pints:'pint',gallons:'gallon',package:'pkg',
+  bunches:'bunch',sprigs:'sprig',stalks:'stalk',handfuls:'handful',ears:'ear'};
 // Pick the measure that reads cleanly: 4 tsp stays "4 tsp", 6 tsp is "2 tbsp", 24 tsp is "1/2 cup"
 function fmtVolume(tsp){
   var clean=function(x,dens){ return dens.some(function(d){ return Math.abs(x*d-Math.round(x*d))<0.01; }); };
@@ -1255,17 +1270,142 @@ function fmtVolume(tsp){
 }
 function fmtWeight(oz){ return oz>=16 ? fmtQty(oz/16)+' lb' : fmtQty(oz)+' oz'; }
 
-// Looser key than ingKey, for merging "2 cloves garlic, minced" with "1 clove garlic"
-function mergeKey(name){
-  var k=name.toLowerCase().replace(/\([^)]*\)/g,' ').split(',')[0]
-    .replace(/\b(fresh|dried|chopped|sliced|diced|minced|grated|shredded|large|medium|small|boneless|skinless|extra[- ]virgin|of)\b/g,' ')
-    .replace(/\s+/g,' ').trim();
-  return k.replace(/(ies|oes|s)$/,function(m){ return m==='ies'?'y':m==='oes'?'o':''; });
+// ── Grocery item identity ─────────────────────────────────────────────────────
+// One line per thing you buy. Prep, size and quality words don't make a new item
+// ("2 cloves garlic, minced" and "1 clove garlic" are both garlic), but how it's
+// stored does: fresh is the default, and frozen, dried and canned stay separate.
+var PREP_WORDS=/\b(fresh|freshly|chopped|finely|roughly|coarsely|thinly|sliced|diced|minced|grated|shredded|crushed|cubed|peeled|seeded|halved|quartered|trimmed|rinsed|drained|packed|loosely|lightly|juiced|zested|large|medium|small|ripe|raw|boneless|skinless|extra[- ]virgin|organic|heaping|plus more|to taste|for serving|for garnish|optional)\b/g;
+var FORM_RE=/(^|\s)(frozen|dried|canned)\b/;  // not "sun-dried"
+var GROCERY_SYNONYMS={
+  'green onion':'scallion','spring onion':'scallion','garbanzo bean':'chickpea','garlic clove':'garlic',
+  'kosher salt':'salt','sea salt':'salt','table salt':'salt','fine salt':'salt','flaky salt':'salt',
+  'ground black pepper':'black pepper','ground pepper':'black pepper','egg yolk':'egg','egg white':'egg'
+};
+function singular(w){
+  if (/(ss|us|is)$/.test(w)) return w;
+  if (/leaves$/.test(w)) return w.replace(/leaves$/,'leaf');
+  if (/ies$/.test(w)) return w.replace(/ies$/,'y');
+  if (/(oes|ches|shes|xes)$/.test(w)) return w.replace(/es$/,'');
+  return w.replace(/s$/,'');
+}
+function capFirst(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+// {key, name} for an ingredient name (unit helps read a bare "pepper"); null if empty
+function groceryItem(name, unit){
+  // Accents off so "jalapeño" and "jalapeno" match (and ñ isn't lost to the cleanup below)
+  var n=String(name).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase()
+    .replace(/\([^)]*\)/g,' ').split(',')[0].split(/\s+or\s+/)[0];
+  var fm=n.match(FORM_RE), form=fm?fm[2]:/^(\(.*\) )?cans?$/i.test(unit||'')?'canned':'';
+  n=n.replace(FORM_RE,' ');
+  if (!form&&!/\bcooked\b/.test(n)&&beanType(n)) form='canned';  // ready-to-use beans come in cans
+  // Canned diced and crushed tomatoes are different products, so they keep their prep words
+  if (form!=='canned') n=n.replace(PREP_WORDS,' ');
+  n=n.replace(/[^a-z0-9&'\- ]/g,' ').replace(/\s+/g,' ').trim()
+    .replace(/^(a|an|the|of) /,'')
+    // A measure left in the name ("a bunch of cilantro", "small bunch cilantro")
+    .replace(/^(bunch|bunches|bunchs|sprigs?|handfuls?|stalks?|heads?|cloves?|pinch|dash)( of)? (?=\S)/,'')
+    // Varieties that are one item: Italian parsley, baby spinach
+    .replace(/\b(italian|flat[- ]leaf|curly)\s+(parsley)\b/,'$2')
+    .replace(/\bbaby\s+(spinach|kale|arugula)\b/,'$1');
+  if (!n) return null;
+  var words=n.split(' '); words.push(singular(words.pop()));
+  var base=words.join(' ');
+  var chile=/^(jalapeno|serrano|habanero|poblano) (pepper|chile|chili)$/.exec(base);
+  var syn=GROCERY_SYNONYMS[base];
+  base=syn||base.replace(/^(cilantro|parsley|basil|mint|thyme|oregano|rosemary|sage|dill|tarragon) (leaf|leave|sprig|stem)$/,'$1');
+  if (base==='pepper'&&(!unit||/^(tsp|tbsp|pinch|dash)$/i.test(unit))) base='black pepper';
+  // A synonym shows its common name, plural if the recipe's was ("green onions" → "scallions")
+  var shown=base===words.join(' ')?n:base+(syn&&/s$/.test(n)&&!/s$/.test(base)&&base!=='salt'&&base!=='black pepper'?'s':'');
+  if (chile) base=chile[1];  // "jalapeño peppers" and "jalapeños" are one item; the name reads as written
+  return {key:(form?form+' ':'')+base, name:capFirst((form?form+' ':'')+shown)};
+}
+// Recipe wording that hides what to buy: "juice of 1 lemon" is a lemon,
+// "salt and pepper to taste" is two items
+function groceryIngs(ings){
+  return [].concat.apply([],ings.map(function(i){
+    i=String(i).replace(/^\s*(?:the\s+)?(?:juice|zest)(?:\s+and\s+(?:juice|zest))?\s+of\s+/i,'');
+    return /^\s*(kosher |sea )?salt\s+(and|&)\s+(black\s+)?pepper\b/i.test(i)?['salt','black pepper']:[i];
+  }));
+}
+// Add two grocery qty strings when they share a measure ("1/2 cup" + "2 tbsp"); else "a + b"
+function combineQtys(a,b){
+  if (!a) return b; if (!b) return a;
+  var pa=parseIng(String(a)), pb=parseIng(String(b));
+  var ua=(pa.unit||'').toLowerCase(), ub=(pb.unit||'').toLowerCase();
+  var restKey=function(r){ return r.toLowerCase().split(' ').map(singular).join(' '); };
+  if (pa.qty&&pb.qty&&restKey(pa.rest)===restKey(pb.rest)){
+    var q=pa.qty+pb.qty, rest=(q>1&&/s$/.test(pb.rest))?pb.rest:pa.rest, tail=rest?' '+rest:'';
+    if (VOL_TSP[ua]&&VOL_TSP[ub]) return fmtVolume(pa.qty*VOL_TSP[ua]+pb.qty*VOL_TSP[ub])+tail;
+    if (WT_OZ[ua]&&WT_OZ[ub]) return fmtWeight(pa.qty*WT_OZ[ua]+pb.qty*WT_OZ[ub])+tail;
+    var u=UNIT_ALIAS[ua]||ua;
+    if (u===(UNIT_ALIAS[ub]||ub)) return fmtQty(q)+(u?' '+pluralUnit(u,q):'')+tail;
+  }
+  return a+' + '+b;
+}
+// ── Buy as whole or prepped ───────────────────────────────────────────────────
+// Items that can be bought whole (a bunch, a head, by count) or already prepped
+// (chopped/minced, by volume). tsp = prepped volume, in tsp, of one of each unit
+// ("each" is a bare count). The household picks per item; whole is the default.
+var BUY_FORMS=[
+  [/^(cilantro|parsley|basil)$/,   {whole:'bunch', prep:'chopped', tsp:{bunch:48}}],
+  [/^(mint|dill)$/,                {whole:'bunch', prep:'chopped', tsp:{bunch:36}}],
+  [/^scallion$/,                   {whole:'bunch', prep:'sliced',  tsp:{bunch:42, each:6}}],
+  [/^garlic$/,                     {whole:'head',  prep:'minced',  tsp:{head:10, clove:1}}],
+  [/^celery$/,                     {whole:'bunch', prep:'chopped', tsp:{bunch:192, stalk:24, each:24}}],
+  [/^((red|yellow|white|sweet) )?onion$/, {whole:'each', prep:'chopped', tsp:{each:48}}],
+  [/^shallot$/,                    {whole:'each',  prep:'minced',  tsp:{each:9}}],
+  [/^carrot$/,                     {whole:'each',  prep:'chopped', tsp:{each:24}}],
+  [/bell pepper$/,                 {whole:'each',  prep:'chopped', tsp:{each:48}}],
+  [/^jalapeno$/,                   {whole:'each',  prep:'minced',  tsp:{each:6}}]
+];
+function buyForm(key){
+  for (var i=0;i<BUY_FORMS.length;i++) if (BUY_FORMS[i][0].test(key)) return BUY_FORMS[i][1];
+  return null;
+}
+// The qty to show for an item in the household's chosen form, or its qty as listed
+// when it can't be converted (a weight, a unit with no known size)
+function buyAsQty(item){
+  var gi=item.name&&groceryItem(item.name), f=gi&&buyForm(gi.key);
+  if (!f||!item.qty) return item.qty;
+  var tsp=0, ok=String(item.qty).split(/\s*\+\s*/).every(function(part){
+    var p=parseIng(part), u=(p.unit||'').toLowerCase(); u=UNIT_ALIAS[u]||u;
+    if (!p.qty) return false;
+    var per=VOL_TSP[u]||(u?f.tsp[u]:f.tsp.each||f.tsp[f.whole]);
+    if (!per) return false;
+    tsp+=p.qty*per; return true;
+  });
+  if (!ok||!tsp) return item.qty;
+  if (buyAs[gi.key]==='prepped') return fmtVolume(tsp)+' '+f.prep;
+  var n=Math.ceil(tsp/f.tsp[f.whole]-0.25);  // sizes vary: a little over still fits in what you bought
+  return Math.max(1,n)+(f.whole==='each'?'':' '+pluralUnit(f.whole,n));
+}
+function toggleBuyAs(key, evt){
+  evt.stopPropagation();
+  if (buyAs[key]==='prepped') delete buyAs[key]; else buyAs[key]='prepped';
+  saveSettings(); renderGrocery();
+}
+
+// Claude's list can still name one item twice ("Garlic" and "Garlic cloves") or keep
+// recipe wording ("Chopped parsley"): clean the names and merge them
+function consolidateGroceryList(list){
+  if (!Array.isArray(list)) return list;
+  var byKey={}, out=[];
+  list.forEach(function(item){
+    var gi=item&&item.name&&groceryItem(item.name);
+    if (!gi){ out.push(item); return; }
+    item.name=gi.name;
+    var prev=byKey[gi.key];
+    if (!prev){ byKey[gi.key]=item; out.push(item); return; }
+    prev.qty=combineQtys(prev.qty,item.qty);
+    if (item.sources) prev.sources=(prev.sources||[]).concat(item.sources);
+  });
+  return out;
 }
 
 // Store section for items Claude hasn't categorized. First match wins.
 var CAT_RULES=[
   [/\bdried\b.*\b(beans?|chickpeas|peas)\b/,'Pantry'],
+  [/^dried (basil|parsley|cilantro|mint|dill|thyme|oregano|rosemary|sage|tarragon|chives|herbs?)\b/,'Herbs & Spices'],
+  [/\bsun-dried\b/,'Pantry'],
   [/\b(peanut butter|almond butter|tahini|baking powder|baking soda)\b/,'Pantry'],
   [/\bfrozen\b/,'Frozen'],
   [/\b(canned|cans?|broth|stock|tomato paste|tomato sauce|diced tomatoes|crushed tomatoes|coconut milk|chickpeas|black beans|kidney beans|cannellini|pinto beans|refried beans)\b/,'Canned & Preserved'],
@@ -1423,7 +1563,7 @@ function recomputeGroceryLocal() {
       if (meal.isLeftover||meal._placeholder||!meal.ingredients) return;
       var srv=mealCookServings(meal,di);
       var base=mealEffectiveIngs(meal);  // main + sides
-      scaleIngs(base,srv).forEach(function(ing){
+      scaleIngs(groceryIngs(base),srv).forEach(function(ing){
         var p=parseIng(ing), name=(p.rest||ing).split(',')[0].trim();
         // Keep the can size in the unit so sizes never merge:
         // "1 (15 oz) can chickpeas" and "1 can (15 oz) chickpeas" -> 1 "(15 oz) can" of "chickpeas"
@@ -1433,9 +1573,16 @@ function recomputeGroceryLocal() {
         // Home-cooked beans: shop for dried (1 cup dried ~ 3 cups cooked)
         var bt=beanPrep!=='can'&&/^cooked\b/i.test(name)&&beanType(name);
         if (bt&&p.qty){ name='dried '+bt.label; p.qty=p.qty/3; }
-        var k=mergeKey(name); if(!k) return;
-        if (!merged[k]){ merged[k]={name:name,bare:0,vol:0,wt:0,units:{}}; order.push(k); }
-        var m=merged[k], u=(p.unit||'').toLowerCase();
+        var gi=groceryItem(name,p.unit); if(!gi) return;
+        var k=gi.key, u=(p.unit||'').toLowerCase();
+        // Buy whole lemons and limes for their juice (about 3 and 2 tbsp each)
+        var juice=/^(lemon|lime) juice$/.exec(k);
+        if (juice&&p.qty&&VOL_TSP[u]){ k=juice[1]; gi.name=capFirst(k+'s'); p.qty=p.qty*VOL_TSP[u]/(k==='lemon'?9:6); u=''; }
+        // Minced garlic is counted in cloves (about 1 tsp each)
+        if (k==='garlic'&&p.qty&&VOL_TSP[u]){ p.qty=p.qty*VOL_TSP[u]; u='clove'; }
+        if (k==='garlic'&&p.qty&&!u&&/clove/i.test(name)) u='clove';  // "1 large garlic clove"
+        if (!merged[k]){ merged[k]={name:gi.name,bare:0,vol:0,wt:0,units:{}}; order.push(k); }
+        var m=merged[k];
         if (!p.qty) return;
         if (VOL_TSP[u]) m.vol+=p.qty*VOL_TSP[u];
         else if (WT_OZ[u]) m.wt+=p.qty*WT_OZ[u];
@@ -1446,21 +1593,25 @@ function recomputeGroceryLocal() {
   });
   // Keep Claude's categories where we have them
   var catMap={};
-  if (currentPlan.groceryList) currentPlan.groceryList.forEach(function(item){ if(item.category){ catMap[ingKey(item.name)]=item.category; catMap[mergeKey(item.name)]=item.category; } });
+  if (currentPlan.groceryList) currentPlan.groceryList.forEach(function(item){
+    var gi=item.category&&groceryItem(item.name);
+    if (gi){ catMap[ingKey(item.name)]=item.category; catMap[gi.key]=item.category; }
+  });
   var newList=order.map(function(k){
     var m=merged[k], parts=[];
     // A can with no stated size is assumed to be the item's only known size, so it's
     // summed with those cans before rounding (several or no known sizes: kept apart)
     var sizes=Object.keys(m.units).filter(function(u){ return /^\(.*\) can$/.test(u); });
     if (m.units.can&&sizes.length===1){ m.units[sizes[0]]+=m.units.can; delete m.units.can; }
+    if (/^(lemon|lime)$/.test(k)) m.bare=Math.ceil(m.bare-1e-6);  // bought whole
     if (m.bare) parts.push(fmtQty(m.bare));
     if (m.vol)  parts.push(fmtVolume(m.vol));
     if (m.wt)   parts.push(fmtWeight(m.wt));
     Object.keys(m.units).forEach(function(u){
       var q=m.units[u];
       // Cans are bought whole: round the week's total (already summed) up, e.g. 1/4 + 1/4 -> 1 can
-      if (/\bcan$/.test(u)) q=Math.ceil(q-1e-6);
-      parts.push(fmtQty(q)+' '+u+(q>1&&!/s$/.test(u)&&u!=='pkg'?'s':''));
+      if (/\bcan$|^clove$/.test(u)) q=Math.ceil(q-1e-6);
+      parts.push(fmtQty(q)+' '+pluralUnit(u,q));
     });
     // Beans switch between canned and dried with the bean setting, so don't reuse a stale category
     var cat=beanType(m.name)?guessCategory(m.name):(catMap[k]||catMap[ingKey(m.name)]||guessCategory(m.name));
@@ -1504,7 +1655,7 @@ function scheduleGroceryRefresh(){
   groceryTimer=setTimeout(function(){
     setGroceryStatus('spin','AI refresh...');
     callClaude(buildGroceryPrompt(currentPlan),6000).then(function(r){
-      if(r&&r.groceryList){ currentPlan.groceryList=normalizeGroceryQtys(r.groceryList); renderGrocery(); kvPut('/plan/'+householdCode,currentPlan); setGroceryStatus('ok','AI refreshed'); setTimeout(function(){setGroceryStatus('','');},2500); }
+      if(r&&r.groceryList){ currentPlan.groceryList=consolidateGroceryList(normalizeGroceryQtys(r.groceryList)); renderGrocery(); kvPut('/plan/'+householdCode,currentPlan); setGroceryStatus('ok','AI refreshed'); setTimeout(function(){setGroceryStatus('','');},2500); }
     }).catch(function(){ setGroceryStatus('',''); });
   },4000);
 }
@@ -1798,6 +1949,8 @@ function buildGroceryPrompt(plan) {
   });
   return 'Produce a consolidated US grocery list for these meals.\n\n'+lines
     +'\nRULES: Scale by serving count, consolidate duplicates.'
+    +'\n- ONE line per item bought: merge prep and size variants ("garlic, minced" + "garlic cloves" → Garlic; "kosher salt" + "salt" → Salt; "green onions" + "scallions" → Scallions). Lemon/lime juice → whole lemons/limes.'
+    +'\n- Keep fresh, frozen, dried and canned forms as SEPARATE lines (fresh basil vs dried basil; peas vs frozen peas).'
     +(beanPrep!=='can'?'\n- Beans listed as "cooked" are cooked at home from dried: list them as dried beans (1 cup dried makes about 3 cups cooked), category Pantry, never canned.':'')
     +'\n\nOZ DISAMBIGUATION (critical):'
     +'\n- Produce sold by weight: oz/lb = weight. e.g. spinach → "5 oz bag", mushrooms → "8 oz pkg", cherry tomatoes → "10 oz".'
@@ -1912,7 +2065,7 @@ async function generatePlan() {
     if(steps[1]) steps[1].classList.add('active');
     startProg(1);
     var grocery=await callClaude(buildGroceryPrompt(plan),8000);
-    plan.groceryList=normalizeGroceryQtys(grocery.groceryList);
+    plan.groceryList=consolidateGroceryList(normalizeGroceryQtys(grocery.groceryList));
     refreshSummary(plan);  // daily averages include sides
     completeProg();
     plan.customItems=customItems;
@@ -2369,7 +2522,7 @@ function enrichGroceryWithSources(plan) {
   if (!plan || !plan.groceryList || !plan.days) return;
   plan.groceryList.forEach(function(item) {
     if (item.sources && item.sources.length) return; // already populated
-    var gKey = ingKey(item.name);
+    var gKey = ingKey(item.name), gItem = groceryItem(item.name);
     var found = [];
     plan.days.forEach(function(day) {
       day.meals.forEach(function(meal) {
@@ -2378,9 +2531,9 @@ function enrichGroceryWithSources(plan) {
         var label = day.dayName + ' ' + mealLabel(meal.type) + ': ' + dish.name;
         (dish.ingredients||[]).forEach(function(ing) {
           var p = parseIng(ing);
-          var rKey = ingKey(p.rest || ing);
+          var rKey = ingKey(p.rest || ing), rItem = groceryItem(p.rest || ing, p.unit);
           if (!rKey || !gKey || rKey.length < 3 || gKey.length < 3) return;
-          var match = gKey === rKey
+          var match = gKey === rKey || (gItem && rItem && gItem.key === rItem.key)
             || (gKey.length >= 4 && rKey.length >= 4 && (rKey.indexOf(gKey) >= 0 || gKey.indexOf(rKey) >= 0));
           if (match && !found.some(function(f){ return f.meal === label; })) {
             // Show qty+unit when both are known; otherwise show the full ingredient string
@@ -2396,6 +2549,8 @@ function enrichGroceryWithSources(plan) {
 }
 
 function renderGrocery() {
+  // Lists saved before consolidation (or by older app versions) get cleaned up on display
+  if (currentPlan&&currentPlan.groceryList) currentPlan.groceryList=consolidateGroceryList(currentPlan.groceryList);
   enrichGroceryWithSources(currentPlan);
   var list=(currentPlan&&currentPlan.groceryList)?currentPlan.groceryList:[];
   var custom=customItems;
@@ -2421,9 +2576,15 @@ function renderGrocery() {
       if(item.sources&&item.sources.length){
         srcBtn='<button class="gi-info" data-sources="'+esc(JSON.stringify(item.sources))+'" onclick="toggleSrcPopover(event,this)" title="Used in...">ⓘ</button>';
       }
+      // Whole/prepped switch for items that can be bought either way
+      var gi=groceryItem(item.name), f=gi&&buyForm(gi.key), formBtn='';
+      if (f){
+        var prepped=buyAs[gi.key]==='prepped', other=prepped?(f.whole==='each'?'whole':f.whole):f.prep;
+        formBtn='<button class="gi-form" onclick="toggleBuyAs(\''+esc(gi.key)+'\',event)" title="Buy '+esc(other)+' instead">&#8644; '+esc(other)+'</button>';
+      }
       html+='<div class="grocery-item'+(done?' done':'')+'" data-item-id="'+id+'" onclick="toggleGroceryItem(this)">'
         +'<div class="gi-check">'+(done?'\u2713':'')+'</div>'
-        +'<span class="gi-name">'+esc(item.name)+'</span><span class="gi-qty">'+esc(item.qty||'')+'</span>'+srcBtn+'</div>';
+        +'<span class="gi-name">'+esc(item.name)+'</span><span class="gi-qty">'+esc(buyAsQty(item)||'')+'</span>'+formBtn+srcBtn+'</div>';
     });
     html+='</div>';
   });
@@ -2460,7 +2621,7 @@ function getGroceryText(){
   var allCats=CAT_ORDER.filter(function(c){return byCategory[c];});
   Object.keys(byCategory).forEach(function(c){ if(allCats.indexOf(c)<0) allCats.push(c); });
   var text='GROCERY LIST - '+planDays+'-day Nourish plan\n\n';
-  allCats.forEach(function(c){ text+=c.toUpperCase()+'\n'; byCategory[c].forEach(function(item){ text+='  - '+item.name+(item.qty?' ('+item.qty+')':'')+'\n'; }); text+='\n'; });
+  allCats.forEach(function(c){ text+=c.toUpperCase()+'\n'; byCategory[c].forEach(function(item){ var q=buyAsQty(item); text+='  - '+item.name+(q?' ('+q+')':'')+'\n'; }); text+='\n'; });
   if(customItems.length){ text+='ADDED BY YOU\n'; customItems.forEach(function(item){ text+='  - '+item.name+(item.qty?' ('+item.qty+')':'')+'\n'; }); }
   return text;
 }
