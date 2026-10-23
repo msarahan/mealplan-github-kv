@@ -1346,7 +1346,8 @@ var FORM_RE=/(^|\s)(frozen|dried|canned)\b/;  // not "sun-dried"
 // Cheeses sold by name, with or without the word "cheese"
 var SHRED_CHEESES='cheddar|mozzarella|monterey jack|pepper jack|colby jack|jack|swiss|gruyere|colby|provolone|fontina|gouda|havarti';
 var GRATE_CHEESES='parmesan|parmigiano|parmigiano-reggiano|parmigiano reggiano|pecorino romano|pecorino|asiago|romano|grana padano';
-var CHEESE_RE=new RegExp('^(.*\\b(?:'+SHRED_CHEESES+'|'+GRATE_CHEESES+'))\\s+cheese$');
+var CRUMBLE_CHEESES='feta|gorgonzola|queso fresco|cotija';
+var CHEESE_RE=new RegExp('^(.*\\b(?:'+SHRED_CHEESES+'|'+GRATE_CHEESES+'|'+CRUMBLE_CHEESES+'))\\s+cheese$');
 var GROCERY_SYNONYMS={
   'green onion':'scallion','spring onion':'scallion','garbanzo bean':'chickpea','garlic clove':'garlic',
   'kosher salt':'salt','sea salt':'salt','table salt':'salt','fine salt':'salt','flaky salt':'salt',
@@ -1494,6 +1495,8 @@ var BUY_FORMS=[
   // Peppers are only bought whole (no switch); chopped amounts still convert to a count
   [/bell pepper$/,                 {whole:'each',  fixed:true, tsp:{each:48}}],
   [/^jalapeno$/,                   {whole:'each',  fixed:true, tsp:{each:6}}],
+  // Crumbled cheeses are sold by weight only: 1 cup crumbled ~ 5 oz
+  [new RegExp('^('+CRUMBLE_CHEESES+'|goat cheese|blue cheese)$'), {whole:'oz', fixed:true, tsp:{oz:9.6, lb:154}}],
   // Cheese: a block by weight, or shredded/grated by volume (4 oz ~ 1 cup shredded, 3 oz ~ 1 cup grated)
   [new RegExp('^(?!fresh )([a-z-]+ )*('+SHRED_CHEESES+')$'), {whole:'oz', label:'block', prep:'shredded', tsp:{oz:12, lb:192, block:96}}],  // a block ~ 8 oz
   [new RegExp('^('+GRATE_CHEESES+')$'),            {whole:'oz', label:'block', prep:'grated',   tsp:{oz:16, lb:256}}],
