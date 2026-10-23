@@ -1383,6 +1383,8 @@ function groceryItem(name, unit){
   if (!form&&/\bfresh mozzarella\b/.test(n)) form='fresh';  // the ball, not the shredded bag
   n=n.replace(FORM_RE,' ');
   if (!form&&!/\bcooked\b/.test(n)&&beanType(n)) form='canned';  // ready-to-use beans come in cans
+  // So do these, however the recipe words them ("1 cup crushed tomatoes")
+  if (!form&&/\b((diced|crushed|stewed|fire[- ]roasted|whole peeled) tomato(es)?|tomato (paste|sauce|puree)|coconut milk)\b/.test(n)) form='canned';
   // Canned diced and crushed tomatoes are different products, so they keep their prep words
   if (form!=='canned') n=n.replace(PREP_WORDS,' ');
   n=n.replace(/[^a-z0-9&'\- ]/g,' ').replace(/\s+/g,' ').trim()
@@ -1519,8 +1521,34 @@ function buyForm(key){
 }
 // The qty to show for an item in the household's chosen form, or its qty as listed
 // when it can't be converted (a weight, a unit with no known size)
+// Canned goods are bought by the can: [what, can size, cups per can drained/poured]
+var CAN_SIZES=[[/\btomato/, '14.5 oz', 1.75], [/\btomato paste\b/, '6 oz', 2/3], [/\bcoconut milk\b/, '13.5 oz', 5/3]];  // last match wins
+var CAN_DEFAULT=['15 oz', 1.5];  // beans, chickpeas, corn, ...
+// "2 cups" chickpeas → "2 (15 oz) cans"; null when an amount can't be converted
+function cannedQty(key, qty){
+  var size=CAN_DEFAULT[0], cups=CAN_DEFAULT[1];
+  CAN_SIZES.forEach(function(c){ if (c[0].test(key)){ size=c[1]; cups=c[2]; } });
+  var sizeOz=parseFloat(size), total=0;
+  var ok=String(qty).split(/\s*\+\s*/).every(function(part){
+    var p=parseIng(part), u=(p.unit||'').toLowerCase(), m;
+    if (!p.qty) return false;
+    if (!u&&(m=String(p.rest||'').match(/^\(\s*[\d.]+\s*-?\s*oz\.?\s*\)\s*cans?\b/i))) u=m[0].toLowerCase().replace(/-?\s*oz\.?/,' oz').replace(/\s+/g,' ');  // "1 (28 oz) can"
+    if (VOL_TSP[u]) total+=p.qty*VOL_TSP[u]/48;                              // cups
+    else if (WT_OZ[u]) total+=p.qty*WT_OZ[u]/sizeOz*cups;                    // oz of product
+    else if ((m=u.match(/^\(\s*([\d.]+)\s*oz\)\s*cans?$/))) total+=p.qty*parseFloat(m[1])/sizeOz*cups;
+    else if (/^cans?$/.test(u)||!u) total+=p.qty*cups;                       // a can (or a bare count of them)
+    else return false;
+    return true;
+  });
+  if (!ok||!total) return null;
+  var n=Math.max(1,Math.ceil(total/cups-0.1));
+  return n+' ('+size+') '+(n>1?'cans':'can');
+}
+// Names as shown: canned goods are listed under Canned & Preserved, so no "Canned" prefix
+function groceryDisplayName(item){ return String(item.name).replace(/^canned\s+/i,'').replace(/^./,function(c){ return c.toUpperCase(); }); }
 function buyAsQty(item){
   var gi=item.name&&groceryItem(item.name), f=gi&&buyForm(gi.key);
+  if (gi&&/^canned /.test(gi.key)&&item.qty) return cannedQty(gi.key,item.qty)||item.qty;
   // Other produce counted by the piece rounds up: you can't buy half a cucumber
   if (!f&&item.qty&&item.category==='Produce'){
     return String(item.qty).split(/\s*\+\s*/).map(function(part){
@@ -1616,7 +1644,7 @@ function produceSection(item){
 }
 // [{label, items}] for one category: Produce by section, others as one sorted list
 function grocerySections(cat, items){
-  var byName=function(a,b){ return String(a.name).localeCompare(String(b.name)); };
+  var byName=function(a,b){ return groceryDisplayName(a).localeCompare(groceryDisplayName(b)); };
   if (cat!=='Produce') return [{label:null, items:items.slice().sort(byName)}];
   // Produce sorts by the main word, so varieties sit together: green and red bell
   // peppers, cherry tomatoes with tomatoes, sweet potatoes with potatoes
@@ -2871,7 +2899,7 @@ function renderGrocery() {
       }
       html+='<div class="grocery-item'+(done?' done':'')+'" data-item-id="'+id+'" onclick="toggleGroceryItem(this)">'
         +'<div class="gi-check">'+(done?'\u2713':'')+'</div>'
-        +'<span class="gi-name">'+esc(item.name)+'</span><span class="gi-qty">'+esc(buyAsQty(item)||'')+'</span>'+formBtn+srcBtn+'</div>';
+        +'<span class="gi-name">'+esc(groceryDisplayName(item))+'</span><span class="gi-qty">'+esc(buyAsQty(item)||'')+'</span>'+formBtn+srcBtn+'</div>';
       });
     });
     html+='</div>';
@@ -2913,7 +2941,7 @@ function getGroceryText(){
     text+=c.toUpperCase()+'\n';
     grocerySections(c,byCategory[c]).forEach(function(sec){
       if (sec.label) text+='  '+sec.label+'\n';
-      sec.items.forEach(function(item){ var q=buyAsQty(item); text+='  - '+item.name+(q?' ('+q+')':'')+'\n'; });
+      sec.items.forEach(function(item){ var q=buyAsQty(item); text+='  - '+groceryDisplayName(item)+(q?' ('+q+')':'')+'\n'; });
     });
     text+='\n';
   });
