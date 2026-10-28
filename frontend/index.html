@@ -448,6 +448,38 @@ body.cooking #app{display:none}
 .es-icon{font-size:38px;margin-bottom:8px}
 .es-title{font-family:'Lora',serif;font-size:16px;color:var(--ink-mid);margin-bottom:4px}
 .es-sub{font-size:12px;line-height:1.5}
+/* Tablets and wider: the phone layout above stays as is below 700px. Lists of cards
+   become phone-width columns instead of stretching into long lines. */
+@media (min-width:700px){
+  body{max-width:1240px}
+  .header{padding:16px 24px 12px}
+  .nav-btn{display:flex;align-items:center;justify-content:center;gap:7px;font-size:13px;padding:11px 4px 9px}
+  .nav-icon{display:inline;margin:0}
+  .section{padding:18px 20px}
+  .hh-setup{max-width:430px;margin:0 auto}
+  .plan-stats{grid-template-columns:repeat(4,1fr)}
+  #plan-content,#recipes-content,.new-plan-panel{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 14px;align-items:start}
+  #plan-content>:not(.plan-day),#recipes-content>:not(.recipe-card),.new-plan-panel>:not(.card){grid-column:1/-1}
+  .new-plan-panel>.generate-btn,.new-plan-panel>.secondary-btn{justify-self:center;width:100%;max-width:430px}
+  .recipe-add-bar{max-width:720px}
+  #grocery-content{columns:300px 3;column-gap:14px}
+  #grocery-content>:not(.grocery-section){column-span:all}
+  .grocery-section{break-inside:avoid}
+  #section-configure{columns:340px 3;column-gap:14px}
+  #section-configure>.card{break-inside:avoid}
+  #section-configure>:not(.card){column-span:all}
+  .cook-mode{max-width:780px;margin:0 auto;padding:0 24px 40px}
+  .ck-text{font-size:17px}
+  .timer-alert{max-width:640px}
+  .timer-float{max-width:640px}
+  .picker-bg{align-items:center}
+  .picker-modal{max-width:560px;border-radius:var(--radius);overflow:hidden}
+}
+/* Landscape tablets: cooking mode puts ingredients + timeline beside the steps */
+@media (min-width:1000px){
+  .cook-mode{max-width:none}
+  .ck-cols{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:0 28px;align-items:start}
+}
 </style>
 </head>
 <body>
@@ -4467,6 +4499,8 @@ function renderCookMode(){
   }
   if(timerChipsHTML()) html+='<div class="ck-chips">'+timerChipsHTML()+'</div>';
   html+='</div></div>';
+  // Side column (ingredients, timeline) beside the steps on wide screens; stacked on phones
+  html+='<div class="ck-cols"><div class="ck-side">';
 
   // Ingredients, scaled to this meal's servings, grouped by dish
   dishes.forEach(function(d,k){
@@ -4490,6 +4524,9 @@ function renderCookMode(){
     dishes.forEach(function(d,k){ var o=cookOptimized(d); if(o) (o.changes||[]).forEach(function(c){ changes.push((multi?dishTag(k):'')+esc(c)); }); });
     if(changes.length) html+='<div class="ck-section">What changed</div><div class="ck-card"><ul class="ck-changes">'+changes.map(function(c){ return '<li>'+c+'</li>'; }).join('')+'</ul></div>';
     html+='<div class="ck-section">Timeline</div><div class="ck-card">'+cookGanttHTML(sched,cook.cooks,multi)+'</div>';
+  }
+  html+='</div><div class="ck-main">';
+  if(sched&&!cook.showOriginal){
     html+='<div class="ck-section">Steps <button class="ck-link" style="float:right;text-transform:none;letter-spacing:0" onclick="cook.showOriginal=true;renderCookMode()">Original directions</button></div>';
     var numOf={}, nowId=null;
     sched.rows.forEach(function(r){ numOf[r.step.id]=r.num; if(!nowId&&!cook.done[r.step.id]) nowId=r.step.id; });
@@ -4522,6 +4559,7 @@ function renderCookMode(){
     });
   }
   html+=cookFeedbackHTML(dishes);
+  html+='</div></div>';
   el.innerHTML=html;
 }
 // ── Countdown timers for hands-off steps ──────────────────────────────────────
