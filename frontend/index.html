@@ -178,9 +178,15 @@ body.cooking #app{display:none}
 .ck-timer .ck-timer-start{background:var(--clay-light);font-size:13px;font-weight:500}
 .ck-timer.ringing{background:var(--clay);color:#fff;border-radius:var(--radius-sm);padding:6px 10px;animation:pulse 1s infinite}
 .ck-timer.ringing button{border-color:#fff}
+.ck-timer.sw{color:var(--sage-dark);flex-wrap:wrap}
+.ck-timer.sw button{border-color:var(--sage-mid);color:var(--sage-dark);white-space:nowrap}
+.ck-timer.sw .ck-timer-start{background:var(--sage-light);font-size:13px;font-weight:500}
+.ck-timer.sw .ck-sw-apply{background:var(--sage);border-color:var(--sage);color:#fff;font-weight:500}
+.ck-timer.sw small{font-size:12px;color:var(--ink-mid)}
 .ck-chips{display:flex;gap:6px;flex-wrap:wrap;width:100%}
 .ck-chip{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--clay-light);color:var(--clay-dark);border:1px solid #e8c4b0}
 .ck-chip b{font-variant-numeric:tabular-nums}
+.ck-chip.sw{background:var(--sage-light);color:var(--sage-dark);border-color:var(--sage-mid)}
 .ck-chip.ringing{background:var(--clay);color:#fff;cursor:pointer;animation:pulse 1s infinite}
 .timer-alert{position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;z-index:300;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
 .ta-row{display:flex;align-items:center;gap:8px;background:var(--clay);color:#fff;border-radius:var(--radius-sm);padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,.2);animation:pulse 1.2s infinite}
@@ -4420,7 +4426,7 @@ function renderCookMode(){
     html+='<span>Ready in ~'+fmtMins(sched.total)+(two.total<one.total-1&&cook.cooks===1?' (~'+fmtMins(two.total)+' with 2 cooks)':'')+'</span>'
       +'<span class="ck-seg"><button class="'+(cook.cooks===1?'on':'')+'" onclick="setCooks(1)">1 cook</button><button class="'+(cook.cooks===2?'on':'')+'" onclick="setCooks(2)">2 cooks</button></span>';
   }
-  if(Object.keys(cookTimers).length) html+='<div class="ck-chips">'+timerChipsHTML()+'</div>';
+  if(timerChipsHTML()) html+='<div class="ck-chips">'+timerChipsHTML()+'</div>';
   html+='</div></div>';
 
   // Ingredients, scaled to this meal's servings, grouped by dish
@@ -4459,7 +4465,7 @@ function renderCookMode(){
         +(!s.handsOn?'<span class="ck-tag off">hands-off</span>':'')
         +(cook.cooks>1&&r.cook>=0?'<span class="ck-tag">Cook '+(r.cook?'B':'A')+'</span>':'')
         +(waits.length?'<span>after step '+waits.join(', ')+'</span>':'')
-        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepTimerHTML(d,s.src,s.id)+'</div></div>';
+        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepTimerHTML(d,s.src,s.id)+stepStopwatchHTML(d,s.src,s.id)+'</div></div>';
     });
   }
   // Original directions: all dishes (toggle), or just the ones not optimized yet
@@ -4504,10 +4510,13 @@ function clearTimer(key){ delete cookTimers[key]; saveTimers(); refreshTimerView
 function refreshTimerViews(){ if(cook) renderCookMode(); renderTimerFloat(); renderTimerAlert(); }
 
 function ensureTimerTick(){
-  if(timerTick||!Object.keys(cookTimers).length) return;
+  if(timerTick||!(Object.keys(cookTimers).length||runningStopwatches().length)) return;
   timerTick=setInterval(function(){
-    var keys=Object.keys(cookTimers), now=Date.now(), changed=false;
-    if(!keys.length){ clearInterval(timerTick); timerTick=null; return; }
+    var keys=Object.keys(cookTimers), now=Date.now(), changed=false, sws=runningStopwatches();
+    if(!keys.length&&!sws.length){ clearInterval(timerTick); timerTick=null; return; }
+    sws.forEach(function(k){
+      document.querySelectorAll('[data-sw="'+k+'"]').forEach(function(el){ el.textContent=fmtElapsed(swElapsed(stopwatches[k])); });
+    });
     keys.forEach(function(k){
       var tm=cookTimers[k], left=tm.endAt-now;
       document.querySelectorAll('[data-timer="'+k+'"]').forEach(function(el){ el.textContent=fmtCountdown(left); });
@@ -4539,12 +4548,15 @@ function stepTimerHTML(t,s,cid){
   if(tm) return '<div class="ck-timer running"><span>⏱ <b data-timer="'+key+'">'+fmtCountdown(tm.endAt-Date.now())+'</b></span><button onclick="'+stop+'addTimerMinute(\''+key+'\')">+1 min</button><button onclick="'+stop+'clearTimer(\''+key+'\')">&#10005;</button></div>';
   return '<div class="ck-timer"><button class="ck-timer-start" onclick="'+stop+'startStepTimer(\''+esc(cid)+'\')">&#9654;'+fmtCountdown(s.mins*60000)+' timer</button></div>';
 }
-// Running timers as compact chips (cooking-mode header and the floating strip)
+// Running timers and stopwatches as compact chips (cooking-mode header and the floating strip)
 function timerChipsHTML(){
   return Object.keys(cookTimers).map(function(k){
     var tm=cookTimers[k];
     return '<span class="ck-chip'+(tm.ringing?' ringing':'')+'" onclick="'+(tm.ringing?'clearTimer(\''+k+'\')':'')+'">'
       +esc(tm.label)+' '+(tm.ringing?'⏰ done &middot; Stop':'<b data-timer="'+k+'">'+fmtCountdown(tm.endAt-Date.now())+'</b>')+'</span>';
+  }).join('')+runningStopwatches().map(function(k){
+    var sw=stopwatches[k];
+    return '<span class="ck-chip sw">'+esc(sw.label)+' ⏱ <b data-sw="'+k+'">'+fmtElapsed(swElapsed(sw))+'</b></span>';
   }).join('');
 }
 // While any timer is ringing, a banner at the top of every view says what it's for
@@ -4562,9 +4574,71 @@ function renderTimerAlert(){
 // Outside cooking mode, running timers float at the bottom of the app
 function renderTimerFloat(){
   var el=document.getElementById('timer-float'); if(!el) return;
-  var any=Object.keys(cookTimers).length&&!cook;
+  var any=!cook&&timerChipsHTML();
   el.style.display=any?'':'none';
   if(any) el.innerHTML=timerChipsHTML();
+}
+
+// ── Stopwatches for steps without a countdown ─────────────────────────────────
+// Hands-on steps get a stopwatch that counts up, to check the step's time estimate.
+// Keyed and saved like the countdown timers (so they survive leaving cooking mode
+// and reloads); running ones show with the timer chips. Pausing or checking off the
+// step shows the measured time against the estimate, with a button to apply it as
+// the step's corrected time (same as tapping the step's minutes).
+var stopwatches={};  // key -> {key, label, recipe, elapsed (ms before startedAt), startedAt (null while paused)}
+try{ stopwatches=JSON.parse(localStorage.getItem('nourish_stopwatches')||'{}')||{}; }catch(e){ stopwatches={}; }
+function saveStopwatches(){ try{ localStorage.setItem('nourish_stopwatches',JSON.stringify(stopwatches)); }catch(e){} }
+function swElapsed(sw){ return (sw.elapsed||0)+(sw.startedAt?Date.now()-sw.startedAt:0); }
+function runningStopwatches(){ return Object.keys(stopwatches).filter(function(k){ return stopwatches[k].startedAt; }); }
+function fmtElapsed(ms){ var s=Math.max(0,Math.floor(ms/1000)), h=Math.floor(s/3600), m=Math.floor(s/60)%60;
+  return (h?h+':'+('0'+m).slice(-2):m)+':'+('0'+(s%60)).slice(-2); }
+function swMins(sw){ return Math.max(1,Math.round(swElapsed(sw)/60000)); }
+// cid: combined step id "<dish index>:<step id>" -> {d, s} (optimized step)
+function cookStepByCid(cid){
+  var parts=String(cid).split(':'), d=cookDishes()[+parts[0]], opt=d&&cookOptimized(d); if(!opt) return null;
+  var s=opt.steps.find(function(x){ return x.id===parts.slice(1).join(':'); });
+  return s?{d:d, s:s}:null;
+}
+function startStopwatch(cid){
+  var hit=cookStepByCid(cid); if(!hit) return;
+  var key=timerKey(hit.d,hit.s), sw=stopwatches[key];
+  if(!sw) sw=stopwatches[key]={key:key, label:stepLabel(hit.s), recipe:hit.d.name, elapsed:0};
+  if(!sw.startedAt) sw.startedAt=Date.now();
+  saveStopwatches(); ensureTimerTick(); refreshTimerViews();
+}
+function pauseStopwatch(key){
+  var sw=stopwatches[key]; if(!sw||!sw.startedAt) return;
+  sw.elapsed=swElapsed(sw); sw.startedAt=null;
+  saveStopwatches(); refreshTimerViews();
+}
+function resetStopwatch(key){ delete stopwatches[key]; saveStopwatches(); refreshTimerViews(); }
+// Use the measured time as the step's corrected minutes
+function applyStopwatch(cid){
+  var hit=cookStepByCid(cid); if(!hit) return;
+  var key=timerKey(hit.d,hit.s), sw=stopwatches[key]; if(!sw) return;
+  var mins=swMins(sw);
+  delete stopwatches[key]; saveStopwatches();
+  setStepMins(hit.d,hit.s,mins);
+  refreshTimerViews();
+}
+// Checking off a step stops its stopwatch, so the measurement is ready to apply
+function pauseStepStopwatch(cid){
+  var hit=cookStepByCid(cid), sw=hit&&stopwatches[timerKey(hit.d,hit.s)];
+  if(sw&&sw.startedAt){ sw.elapsed=swElapsed(sw); sw.startedAt=null; saveStopwatches(); renderTimerFloat(); }
+}
+// Controls for one step (start button, running stopwatch, or the paused measurement)
+function stepStopwatchHTML(t,s,cid){
+  if(!s.handsOn&&Number(s.mins)>0) return '';  // has a countdown timer instead
+  var key=timerKey(t,s), sw=stopwatches[key], stop='event.stopPropagation();', est=Math.round(Number(s.mins)||0);
+  if(!sw) return '<div class="ck-timer sw"><button class="ck-timer-start" onclick="'+stop+'startStopwatch(\''+esc(cid)+'\')" title="Time this step to check its estimate">&#9201; Stopwatch</button></div>';
+  var reset='<button onclick="'+stop+'resetStopwatch(\''+key+'\')">Reset</button>';
+  if(sw.startedAt) return '<div class="ck-timer sw running"><span>⏱ <b data-sw="'+key+'">'+fmtElapsed(swElapsed(sw))+'</b>'+(est?' <small>est. '+est+' min</small>':'')+'</span>'
+    +'<button onclick="'+stop+'pauseStopwatch(\''+key+'\')">Pause</button>'+reset+'</div>';
+  // Paused: the measured time against the estimate, and a button to use it
+  var ms=swElapsed(sw), mins=swMins(sw), same=mins===est;
+  return '<div class="ck-timer sw paused"><span>Took '+(ms<60000?fmtElapsed(ms):mins+' min')+(est?' <small>('+(same?'as estimated':'est. '+est)+')</small>':'')+'</span>'
+    +'<button onclick="'+stop+'startStopwatch(\''+esc(cid)+'\')">&#9654; Resume</button>'+reset
+    +(same?'':'<button class="ck-sw-apply" onclick="'+stop+'applyStopwatch(\''+esc(cid)+'\')" title="Correct this step\'s time">Use '+mins+' min</button>')+'</div>';
 }
 
 // ── Cooking feedback and recipe revisions ─────────────────────────────────────
@@ -4582,6 +4656,9 @@ function adjustStepMins(cid){
   if(v===null) return;
   var mins=Math.round(parseFloat(v));
   if(!(mins>=0&&mins<=600)){ showToast('Enter a number of minutes'); return; }
+  setStepMins(d,s,mins);
+}
+function setStepMins(d,s,mins){
   if(mins===Math.round(s.mins)) return;
   var holder=notesHolder(d);
   holder.cookingNotes=(holder.cookingNotes||[]).filter(function(n){ return n.indexOf('"'+stepLabel(s)+'" took')!==0; })
@@ -4702,10 +4779,10 @@ function revisionHistoryHTML(r){
 }
 
 function setCooks(n){ if(cook){ cook.cooks=n; renderCookMode(); } }
-function toggleCookStep(id){ if(!cook) return; cook.done[id]=!cook.done[id]; renderCookMode(); }
+function toggleCookStep(id){ if(!cook) return; cook.done[id]=!cook.done[id]; if(cook.done[id]) pauseStepStopwatch(id); renderCookMode(); }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-// Timers still running from before a reload
+// Timers and stopwatches still running from before a reload
 ensureTimerTick(); renderTimerFloat(); renderTimerAlert();
 
 // Service worker keeps the app itself available offline (see sw.js)
