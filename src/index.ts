@@ -99,6 +99,21 @@ const DIET_RULES = `diets: every dietary approach the recipe fits (often several
 - mediterranean: vegetables, legumes, whole grains, fish/seafood or poultry, olive oil;
   little or no red meat, butter, or heavily processed ingredients.
 - omnivore: any balanced meal (nearly every recipe fits).`;
+// Which meals a recipe suits, and whether it needs cooking when it's eaten. The
+// planner only puts a saved recipe in a meal it's tagged for, and lunches it picks
+// need no cooking at lunch time ("make-ahead" ones only with a batch-prep task).
+const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack', 'side'];
+const mealTypeList = { type: 'array', items: { type: 'string', enum: MEAL_TYPES } };
+const cookingEnum = { type: 'string', enum: ['none', 'make-ahead', 'at-meal'] };
+const MEAL_RULES = `mealTypes: the meals the dish suits (one or more of ${MEAL_TYPES.join(', ')}); "side" for a side
+  dish rather than a main. Most cooked mains (roasts, bakes, stir-fries, curries, pasta) are dinner
+  only; add lunch only for dishes people commonly eat at lunch (salads, sandwiches, wraps, grain or
+  noodle bowls, soups); breakfast only for breakfast foods.
+cooking: how much cooking the dish needs when it is eaten:
+- none: no cooking at all, just assembly (raw or ready-to-eat ingredients, overnight oats, sandwiches).
+- make-ahead: has cooked parts that can be cooked in advance in a batch (grains, noodles, roasted
+  vegetables, beans, chicken, soup), then eaten cold or just reheated.
+- at-meal: must be cooked right before eating (stir-fries, pan-seared or roasted mains, eggs to order).`;
 
 const RECIPE_SCHEMA = {
   type: 'object',
@@ -107,9 +122,10 @@ const RECIPE_SCHEMA = {
     calories: { type: 'number' }, protein: { type: 'number' },
     carbs: { type: 'number' }, fat: { type: 'number' }, servings: { type: 'integer' },
     ingredients: strList, steps: strList, notes: str, diets: dietList,
+    mealTypes: mealTypeList, cooking: cookingEnum,
   },
   required: ['name', 'tags', 'prepMins', 'calories', 'protein', 'carbs', 'fat',
-             'servings', 'ingredients', 'steps', 'notes', 'diets'],
+             'servings', 'ingredients', 'steps', 'notes', 'diets', 'mealTypes', 'cooking'],
   additionalProperties: false,
 };
 const RECIPES_SCHEMA = {
@@ -128,7 +144,8 @@ Use US customary units (cups, tbsp, tsp, oz, lb). Write ingredient fractions in 
 ASCII (e.g. "1/2 cup rice"). Estimate calories/protein/carbs/fat per serving if not stated.
 prepMins is total active + cooking time in minutes.
 Tags are short descriptors like: quick, vegetarian, vegan, make-ahead, high-protein, batch-prep.
-${DIET_RULES}`;
+${DIET_RULES}
+${MEAL_RULES}`;
 
 // One Claude call whose reply is guaranteed to match `schema`. Returns the parsed object.
 async function callStructured(env, content, schema, effort = 'low') {
@@ -150,7 +167,7 @@ async function extractRecipes(env, content) {
   return recipes;
 }
 
-// ── Diet classification for recipes saved before `diets` existed ─────────────
+// ── Classification for recipes saved before diets/mealTypes/cooking existed ──
 const CLASSIFY_SCHEMA = {
   type: 'object',
   properties: {
@@ -158,8 +175,8 @@ const CLASSIFY_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { id: str, diets: dietList },
-        required: ['id', 'diets'],
+        properties: { id: str, diets: dietList, mealTypes: mealTypeList, cooking: cookingEnum },
+        required: ['id', 'diets', 'mealTypes', 'cooking'],
         additionalProperties: false,
       },
     },
@@ -168,13 +185,16 @@ const CLASSIFY_SCHEMA = {
   additionalProperties: false,
 };
 
-// recipes: [{id, name, ingredients}]. Returns [{id, diets}] for known ids only.
-async function classifyDiets(env, recipes) {
+// recipes: [{id, name, ingredients, steps?}]. Returns [{id, diets, mealTypes, cooking}] for known ids only.
+async function classifyRecipes(env, recipes) {
   const list = recipes.map(r =>
-    `id=${r.id} | ${r.name} | ${(r.ingredients || []).join('; ')}`).join('\n');
+    `id=${r.id} | ${r.name} | ${(r.ingredients || []).join('; ')}`
+    + (Array.isArray(r.steps) && r.steps.length ? ` | steps: ${r.steps.join(' ').slice(0, 400)}` : '')).join('\n');
   const { results } = await callStructured(env,
-    `For each recipe below, list the dietary approaches it fits. Return one result per id.
+    `For each recipe below, list the dietary approaches it fits, the meals it suits, and how much
+cooking it needs when it is eaten. Return one result per id.
 ${DIET_RULES}
+${MEAL_RULES}
 
 RECIPES:
 ${list}`, CLASSIFY_SCHEMA);
@@ -534,15 +554,17 @@ ${sourceText}`;
       }
     }
 
-    // ── POST /classify-diets ─────────────────────────────────────────────────────
-    // Body: { recipes: [{id, name, ingredients}] } (max CLASSIFY_BATCH) → { results: [{id, diets}] }
-    if (request.method === 'POST' && path === '/classify-diets') {
+    // ── POST /classify-recipes ───────────────────────────────────────────────────
+    // Body: { recipes: [{id, name, ingredients, steps?}] } (max CLASSIFY_BATCH)
+    //   → { results: [{id, diets, mealTypes, cooking}] }
+    // /classify-diets is its old name, kept for pages loaded before the rename
+    if (request.method === 'POST' && (path === '/classify-recipes' || path === '/classify-diets')) {
       const body = await request.json().catch(() => ({}));
       const recipes = Array.isArray(body.recipes) ? body.recipes : [];
       if (!recipes.length) return err('No recipes provided');
       if (recipes.length > CLASSIFY_BATCH) return err(`At most ${CLASSIFY_BATCH} recipes per request`);
       try {
-        return json({ results: await classifyDiets(env, recipes) });
+        return json({ results: await classifyRecipes(env, recipes) });
       } catch (e) {
         return err('Could not classify recipes: ' + e.message);
       }
