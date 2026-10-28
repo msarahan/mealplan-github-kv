@@ -326,11 +326,9 @@ body.cooking #app{display:none}
 .meal-card-header{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;cursor:pointer;user-select:none}
 .meal-card.leftover-card .meal-card-header{cursor:default}
 .meal-card-left{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
-.meal-type-badge{font-size:9px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;border-radius:5px;background:var(--sand-dark);color:var(--ink-mid);flex-shrink:0}
-.meal-type-badge.breakfast{background:#fef3e2;color:#92600a}
-.meal-type-badge.lunch{background:#e8f4e8;color:#2e6b2e}
-.meal-type-badge.dinner{background:#eee8f5;color:#5a3a8a}
-.meal-type-badge.snack{background:#fce8e4;color:#8a3020}
+.meal-legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;font-weight:500;margin:-4px 0 10px}
+.meal-legend span::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:4px;vertical-align:0}
+.ml-color{width:28px;height:28px;padding:0;border:1px solid var(--sand-dark);border-radius:6px;background:none;cursor:pointer;flex-shrink:0}
 .meal-name{font-size:13px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .leftover-name{font-size:12px;color:var(--ink-light);font-style:italic}
 .pinned-badge{font-size:9px;font-weight:500;padding:2px 6px;border-radius:5px;background:var(--sage-light);color:var(--sage-dark);flex-shrink:0}
@@ -1243,11 +1241,26 @@ function newMealId(name){
   while (taken.indexOf(id)>=0) id=base+' '+(n++);
   return id;
 }
+// Each meal type's colour (meals[].color); meal cards show their title in it instead of
+// a "Breakfast"/"Lunch" badge. Defaults match the old badge colours.
+var MEAL_COLOR_DEFAULTS={breakfast:'#92600a',lunch:'#2e6b2e',dinner:'#5a3a8a',snack:'#8a3020'};
+var MEAL_COLOR_EXTRA=['#1a6a7a','#8a3a6a','#4a5a8a','#6a6a2a'];
+function mealColor(type){
+  var i=getMealTypes().indexOf(type), m=meals[i];
+  if (m&&/^#[0-9a-f]{6}$/i.test(m.color||'')) return m.color;
+  return MEAL_COLOR_DEFAULTS[type]||MEAL_COLOR_EXTRA[Math.max(0,i)%MEAL_COLOR_EXTRA.length];
+}
+function mealLegendHTML(){
+  return '<div class="meal-legend">'+getMealTypes().map(function(t){
+    return '<span style="color:'+mealColor(t)+'">'+esc(mealLabel(t))+'</span>';
+  }).join('')+'</div>';
+}
 function renderMealList(){
   var el=document.getElementById('meal-list'); if(!el) return;
   el.innerHTML=meals.map(function(m,i){
     return '<div class="ml-item">'
       +'<div class="ml-head">'
+      +'<input class="ml-color" type="color" value="'+mealColor(m.id)+'" title="Colour on the plan" aria-label="Colour for '+esc(m.name)+'" onchange="setMealField('+i+',\'color\',this.value)">'
       +'<input class="mn-input" type="text" maxlength="30" value="'+esc(m.name)+'" placeholder="'+esc(MEAL_LABELS[m.id]||'Meal name')+'" aria-label="Meal name" onchange="setMealField('+i+',\'name\',this.value)">'
       +'<button class="ml-btn" title="Move up" onclick="moveMeal('+i+',-1)"'+(i===0?' disabled':'')+'>&#8593;</button>'
       +'<button class="ml-btn" title="Move down" onclick="moveMeal('+i+',1)"'+(i===meals.length-1?' disabled':'')+'>&#8595;</button>'
@@ -1267,6 +1280,7 @@ function setMealField(i, field, value){
   var m=meals[i]; if(!m) return;
   value=(value||'').trim();
   if (field==='name') m.name=value||MEAL_LABELS[m.id]||capFirst(m.id);
+  else if (field==='color') m.color=/^#[0-9a-f]{6}$/i.test(value)?value.toLowerCase():undefined;
   else m.notes=value;
   mealsChanged();
 }
@@ -3497,18 +3511,15 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   if (meal._placeholder) {
     return '<div class="meal-card placeholder-card" id="meal-'+di+'-'+mi+'" onclick="openPicker('+di+','+mi+')">'
       +'<div class="meal-card-header"><div class="meal-card-left">'
-      +'<span class="meal-type-badge '+esc(meal.type)+'">'+esc(mealLabel(meal.type))+'</span>'
-      +'<span class="placeholder-name">+ Pick a recipe</span>'
+      +'<span class="placeholder-name" style="color:'+mealColor(meal.type)+'">+ Pick '+esc(mealLabel(meal.type).toLowerCase())+'</span>'
       +'</div></div></div>';
   }
   if (meal.isLeftover) {
     return '<div class="meal-card leftover-card" id="meal-'+di+'-'+mi+'">'
       +'<div class="meal-card-header"><div class="meal-card-left">'
-      +'<span class="meal-type-badge lunch">'+esc(mealLabel('lunch'))+'</span>'
-      +'<span class="leftover-name">&#127973; Leftovers: '+esc(meal.sourceDinner||'prev dinner')+'</span>'
+      +'<span class="leftover-name" style="color:'+mealColor('lunch')+'">&#127973; Leftovers: '+esc(meal.sourceDinner||'prev dinner')+'</span>'
       +'</div></div></div>';
   }
-  var type=esc(meal.type||'meal');
   var cookSrv=defaultCookServings(meal,di);
   var dispSrv=mealCookServings(meal,di);
   if(meal.ingredients&&!meal._baseIngs) meal._baseIngs=meal.ingredients.slice();
@@ -3516,8 +3527,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
   var html='<div class="meal-card'+(startOpen?' open':'')+'" id="meal-'+di+'-'+mi+'">'
     +'<div class="meal-card-header" onclick="toggleMealCard(this)">'
     +'<div class="meal-card-left">'
-    +'<span class="meal-type-badge '+type+'">'+esc(mealLabel(meal.type))+'</span>'
-    +'<span class="meal-name">'+esc(meal.name||'')
+    +'<span class="meal-name" style="color:'+mealColor(meal.type)+'" title="'+esc(mealLabel(meal.type))+'">'+esc(meal.name||'')
     +(mealSides(meal).length?'<span class="meal-sides"> + '+esc(mealSides(meal).map(function(s){ return s.name; }).join(' + '))+'</span>':'')+'</span>'
     +(meal.libraryId?'<span class="lib-badge" title="From your saved recipes">&#128218;</span>':'')
     +'</div>';
@@ -3581,7 +3591,7 @@ function renderPlan(plan) {
   var pc=document.getElementById('plan-content'), s=plan.summary||{};
   var html='<div id="backfill-bar" class="backfill-bar">'
     +'<p></p><button class="backfill-btn" id="backfill-btn" onclick="backfillPlan()">Backfill remaining meals</button></div>'
-    +'<div class="plan-header-row"><h2>Your '+plan.days.length+'-day plan</h2></div>'
+    +'<div class="plan-header-row"><h2>Your '+plan.days.length+'-day plan</h2></div>'+mealLegendHTML()
     +'<div class="plan-stats">'
     +'<div class="stat-card"><div class="sc-val">'+(s.totalUniqueIngredients||'?')+'</div><div class="sc-label">unique ingredients</div></div>'
     +'<div class="stat-card"><div class="sc-val">'+(s.avgDailyCalories||'?')+'</div><div class="sc-label">avg kcal/day</div></div>'
