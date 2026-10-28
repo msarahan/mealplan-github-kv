@@ -258,6 +258,9 @@ body.cooking #app{display:none}
 .day-prep-task{font-size:12px;color:var(--sage-dark);padding:1px 0 1px 13px;position:relative;line-height:1.4}
 .day-prep-task::before{content:'›';position:absolute;left:2px;font-weight:700}
 .day-prep-task+.day-prep-task{margin-top:5px}
+.dpt-title{font-weight:600}
+.dpt-items,.dpt-steps{margin:2px 0 0;padding-left:16px}
+.dpt-items li,.dpt-steps li{padding:1px 0}
 .dpt-when{font-size:11px;color:var(--sage-dark);font-weight:500}
 .dpt-meta{font-size:11px;color:var(--ink-light)}
 .dpt-off{font-size:11px;color:var(--clay-dark)}
@@ -2246,11 +2249,17 @@ function beanTip(t, cookedCups, meals){
   var makes=' Makes about '+cupsText(dried*3)+'.';
   var tip={keepsDays:BEAN_KEEPS_DAYS, meals:meals, bean:true,
     qualityNote:'Store in their cooking liquid; freeze extras for up to 3 months.'};
+  tip.title='Cooked '+t.label; tip.items=[cupsText(dried)+' dried '+t.label,'1/2 tsp salt'];
   if (beanPrep==='pressure'){
+    tip.steps=['Cover the beans with water by 2 inches and add the salt (no soaking needed).',
+      'Pressure-cook '+t.pressure+' minutes at high pressure.','Let the pressure release naturally, 15 minutes.'+makes];
     tip.task='Pressure-cook '+cupsText(dried)+' dried '+t.label+' (no soaking needed): cover with water by 2 inches, add 1/2 tsp salt, '
       +t.pressure+' minutes at high pressure, then 15 minutes natural release.'+makes;
   } else {
     tip.nightBeforeTask='Soak '+cupsText(dried)+' dried '+t.label+' in '+cupsText(dried*3)+' cold water overnight.';
+    tip.steps=['Drain the soaked beans and cover with fresh water by 2 inches.',
+      'Bring to a boil'+(t.boilHard?' and boil hard for 10 minutes (needed to make kidney beans safe)':'')+'.',
+      'Simmer until tender, '+t.stove+'.','Salt in the last 15 minutes.'+makes];
     tip.task='Cook the soaked '+t.label+': drain, cover with fresh water by 2 inches, bring to a boil'
       +(t.boilHard?' and boil hard for 10 minutes (needed to make kidney beans safe)':'')
       +', then simmer until tender, '+t.stove+'. Salt in the last 15 minutes.'+makes;
@@ -2393,6 +2402,33 @@ function ensureBatchTipIngredients(){
     recomputeGroceryLocal(); pushPlan(plan);
     if (batchTips(plan).length) scheduleGroceryRefresh();  // Claude's list with the batches too
   }).catch(function(){}).finally(function(){ _batchReadInFlight=false; });
+}
+// Plans made before tasks had card fields: ask Claude once per plan to split each task
+// into a title, its ingredients and its steps, then redraw the plan
+var _prepCardsTried=null;  // the plan last asked about, so a failed call isn't repeated on every redraw
+function ensurePrepTipCards(){
+  var plan=currentPlan, tips=plan&&plan.summary&&plan.summary.sharedPrepTips;
+  if (!Array.isArray(tips)||_prepCardsTried===plan||!isOnline()) return;
+  var todo=tips.filter(function(t){ return t&&typeof t==='object'&&t.task&&!t.bean&&!Array.isArray(t.steps); });
+  if (!todo.length) return;
+  _prepCardsTried=plan;
+  var prompt='Meal-plan batch-prep tasks are below. Split each into: title (a short name, e.g. "Brown rice"), '
+    +'items (every ingredient it uses with its total amount, one per entry, as written in the task) and steps '
+    +'(the method as short steps in order, one action each). Keep every amount, time and temperature from the task.\n\n'
+    +todo.map(function(t,i){ return (i+1)+'. '+t.task; }).join('\n')
+    +'\n\nReturn ONLY valid JSON with one entry per task, in order: {"tips":[{"title":"","items":[],"steps":[]}]}';
+  callClaude(prompt,3000).then(function(r){
+    var got=(r&&Array.isArray(r.tips))?r.tips:[];
+    todo.forEach(function(t,i){
+      var x=got[i]||{};
+      if (!Array.isArray(x.steps)||!x.steps.length) return;
+      t.title=x.title?String(x.title):null;
+      t.items=Array.isArray(x.items)?x.items.map(String):[];
+      t.steps=x.steps.map(String);
+    });
+    if (currentPlan!==plan) return;
+    pushPlan(plan); renderPlan(plan);
+  }).catch(function(){});
 }
 // {tokens: [dish, ...]} for every planned dish (mains and sides) with a 2+ word name, and
 // {'tip:'+tokens: [batch]} for make-ahead batches (matched on the full name, "egg muffins")
@@ -2964,11 +3000,12 @@ function buildPrompt() {
     +'\n\nINGREDIENT UNITS: US customary (cups, tbsp, tsp, oz, lb). Ingredients are for 1 serving.'+MEAT_RULE
     +'\n\nsharedPrepTips: 3-5 batch-prep tasks as structured objects with fields: task (action + total quantity; if the step combines multiple ingredients spell them out inline, e.g. "Make 3 cups tomato-herb sauce by combining 2 cans crushed tomatoes with 1 tsp oregano and 1 tsp basil" — never just name the result without saying how to make it), keepsDays (integer — how many days it stays safe to eat refrigerated), qualityNote (optional — when texture/flavour starts to degrade before it becomes unsafe), meals (array of "DayName type" strings listing every meal in the plan that uses it), '
     +'makes (when meals use the result by name as an ingredient, that name, e.g. "spinach-feta egg muffins" or "cooked brown rice"; otherwise null), '
-    +'ingredients (when it has makes: the raw ingredients for the WHOLE batch with total amounts in US units, e.g. ["8 eggs","2 cups spinach"]; otherwise []). '
+    +'ingredients (when it has makes: the raw ingredients for the WHOLE batch with total amounts in US units, e.g. ["8 eggs","2 cups spinach"]; otherwise []), '
+    +'and for the card the household follows: title (a short name, e.g. "Brown rice"), items (every ingredient the task uses with its total amount, one per entry, even when ingredients is []) and steps (the method as short steps in order, one action each). '
     +'A meal that uses a batch lists it by exactly that name ("2 spinach-feta egg muffins") and does not repeat the batch\'s raw ingredients; the grocery list buys the batch\'s ingredients once.'
     +prepScheduleRules()+beanRules()
     +'\n\nReturn ONLY valid JSON:'
-    +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":[{"task":"Cook 3 cups brown rice in 6 cups water with 1/2 tsp salt","keepsDays":5,"qualityNote":"may dry out by day 4","meals":["Monday lunch","Wednesday dinner","Friday lunch"],"makes":null,"ingredients":[]},{"task":"Bake 8 spinach-feta egg muffins: whisk 8 eggs with 1/2 cup milk, 2 cups chopped spinach and 1/2 cup crumbled feta, bake in a greased muffin tin 20 min at 350F","keepsDays":4,"meals":["Tuesday breakfast","Thursday breakfast"],"makes":"spinach-feta egg muffins","ingredients":["8 eggs","1/2 cup milk","2 cups spinach","1/2 cup crumbled feta"]}]},'
+    +'{"summary":{"totalUniqueIngredients":28,"avgDailyCalories":2000,"avgDailyProtein":120,"sharedPrepTips":[{"task":"Cook 3 cups brown rice in 6 cups water with 1/2 tsp salt","keepsDays":5,"qualityNote":"may dry out by day 4","meals":["Monday lunch","Wednesday dinner","Friday lunch"],"makes":null,"ingredients":[],"title":"Brown rice","items":["3 cups brown rice","1/2 tsp salt"],"steps":["Bring 6 cups water and the salt to a boil.","Stir in the rice, cover and simmer 45 min.","Rest 10 min, fluff and cool before refrigerating."]},{"task":"Bake 8 spinach-feta egg muffins: whisk 8 eggs with 1/2 cup milk, 2 cups chopped spinach and 1/2 cup crumbled feta, bake in a greased muffin tin 20 min at 350F","keepsDays":4,"meals":["Tuesday breakfast","Thursday breakfast"],"makes":"spinach-feta egg muffins","ingredients":["8 eggs","1/2 cup milk","2 cups spinach","1/2 cup crumbled feta"],"title":"Spinach-feta egg muffins","items":["8 eggs","1/2 cup milk","2 cups spinach","1/2 cup crumbled feta"],"steps":["Heat the oven to 350F and grease a muffin tin.","Chop the spinach.","Whisk the eggs and milk, then stir in the spinach and feta.","Fill 8 cups and bake 20 min."]}]},'
     +'"days":[{"dayName":"Monday","meals":[{"type":"dinner","name":"Chicken Stir-Fry","leftoversForLunch":true,"tags":["quick"],"prepMins":20,"calories":520,"protein":38,"carbs":45,"ingredients":["6 oz chicken breast"],"prepNote":null,"batchNote":null}]},'
     +'{"dayName":"Wednesday","meals":[{"type":"lunch","name":"Chicken Stir-Fry","isLeftover":true,"sourceDinner":"Chicken Stir-Fry"},{"type":"dinner","name":"Oatmeal","tags":["quick"],"prepMins":10,"calories":380,"protein":12,"carbs":58,"ingredients":["1 cup rolled oats"],"leftoversForLunch":false,"prepNote":null,"batchNote":null}]}]}'
     +'\n\nDo NOT include groceryList. Do NOT include cooking steps ("steps") for meals or sides: they are written later, when the household opens a meal. '
@@ -3493,6 +3530,7 @@ function renderPlan(plan) {
   });
   pc.innerHTML=html;
   updateBackfillBar();
+  ensurePrepTipCards();  // older plans: split make-ahead tasks into ingredients and steps, once
   // Cards that start open (today's meals) get their steps written like opened ones
   pc.querySelectorAll('.meal-card.open').forEach(function(card){
     var m=/^meal-(\d+)-(\d+)$/.exec(card.id); if (m) ensureSteps(+m[1],+m[2]);
@@ -3569,14 +3607,16 @@ function dayPrepBoxHTML(entries) {
   // In time order: the night before, today's tasks, then tonight's soaks for tomorrow
   var when=function(e){ return e.nightBefore?0:e.tonight?2:1; };
   entries.slice().sort(function(a,b){ return when(a)-when(b); }).forEach(function(e){
-    var t=e.tip;
-    html+='<div class="day-prep-task">'+esc(t.task)
+    var t=e.tip, card=Array.isArray(t.steps)&&t.steps.length;
+    html+='<div class="day-prep-task">'+(card?'<span class="dpt-title">'+esc(t.title||t.makes||'Make-ahead')+'</span>':esc(t.task))
       +(e.tonight?' <span class="dpt-when">(tonight, for tomorrow)</span>':'')
       +(e.nightBefore?' <span class="dpt-when">(the night before)</span>':'')
       +(t.meals&&t.meals.length?'<div class="dpt-meta">For '+esc(t.meals.map(prettyMealRef).join(', '))
         +(t.keepsDays?' &middot; keeps '+t.keepsDays+' days':'')+'</div>':'')
       +(t.qualityNote?'<div class="dpt-meta">'+esc(t.qualityNote)+'</div>':'')
       +(e.offDay?'<div class="dpt-off">Not one of your make-ahead days &mdash; needed here to stay fresh</div>':'')
+      +(card&&Array.isArray(t.items)&&t.items.length?'<ul class="dpt-items">'+t.items.map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul>':'')
+      +(card?'<ol class="dpt-steps">'+t.steps.map(function(s){ return '<li>'+esc(s)+'</li>'; }).join('')+'</ol>':'')
       +'</div>';
   });
   return html+'</div>';
