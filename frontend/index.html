@@ -201,6 +201,7 @@ body.cooking #app{display:none}
 .ck-text{font-size:16px;line-height:1.45;color:var(--ink)}
 .ck-uses{margin-top:5px;font-size:13px;line-height:1.4;color:var(--sage-dark)}
 .ck-uses span{display:block}
+.ck-uses .ck-from{color:var(--ink-mid);font-style:italic}
 .ck-timer{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:14px;color:var(--clay-dark)}
 .ck-timer b{font-variant-numeric:tabular-nums;font-size:18px}
 .ck-timer button{padding:5px 11px;border-radius:20px;border:1px solid #e8c4b0;background:var(--white);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--clay-dark);cursor:pointer}
@@ -4713,9 +4714,20 @@ async function requestCookWakeLock(){
 }
 document.addEventListener('visibilitychange',function(){ if(cook&&document.visibilityState==='visible') requestCookWakeLock(); });
 
-// Optimize every dish that has no saved optimization (in parallel)
+// Optimize every dish that has no saved optimization (in parallel). Ones optimized
+// before per-step shares (no v) are redone once, unless a timer or stopwatch is
+// running on them; the old steps stay up until the new ones arrive.
 function optimizeCookDishes(){
-  cookDishes().forEach(function(d,k){ if(!cookOptimized(d)&&(d.steps||[]).length) optimizeDish(k); });
+  cookDishes().forEach(function(d,k){
+    var opt=cookOptimized(d);
+    if(!(d.steps||[]).length) return;
+    if(!opt) optimizeDish(k);
+    else if(!opt.v&&!dishHasClocks(d)) optimizeDish(k);
+  });
+}
+function dishHasClocks(d){
+  var pre=hashStr(d.name||'')+':';
+  return Object.keys(cookTimers).concat(Object.keys(stopwatches)).some(function(key){ return key.indexOf(pre)===0; });
 }
 async function optimizeDish(k){
   var d=cookDishes()[k]; if(!d||cook.loading[k]) return;
@@ -4727,7 +4739,8 @@ async function optimizeDish(k){
       body:JSON.stringify({name:d.name, ingredients:effectiveIngs(d), steps:d.steps||[], notes:notesHolder(d).cookingNotes||[]})});
     var data=await readJsonResponse(resp);
     if(data.error) throw new Error(data.error.message||data.error);
-    var opt={hash:cookHash(d), steps:data.steps, changes:data.changes||[]};
+    // v 2: each step's uses give its own share and mark what earlier steps prepped
+    var opt={hash:cookHash(d), steps:data.steps, changes:data.changes||[], v:2};
     d.optimized=opt;
     var lib=libRecipeOf(d); if(lib) lib.optimized=opt;
     saveDishChange(d);
@@ -4811,15 +4824,32 @@ function stepLabel(s){
   return words.slice(0,5).join(' ')+(words.length>5?'…':'');
 }
 
-// A step's ingredients at the scaled amounts. Directions optimized with ingredient
-// data list them per step (uses: [{i, part}], i indexes effectiveIngs); older ones
-// and the original directions match ingredient names in the step's text instead.
-function stepIngs(d, s, srv){
-  var ings=effectiveIngs(d), scaled=scaleIngs(ings,srv);
-  var uses=Array.isArray(s.uses)?s.uses:matchStepIngs(ings,typeof s==='string'?s:s.text);
-  return uses.filter(function(u){ return ings[u.i]!=null; }).sort(function(a,b){ return a.i-b.i; }).map(function(u){
-    return u.part>0&&u.part<1?scaleIngs([ings[u.i]],srv*u.part)[0]:scaled[u.i];  // "half the garlic"
+// The ingredients a step uses: [{i, part, prepped?}], i indexing effectiveIngs. Directions
+// optimized with ingredient data list them per step; older ones and the original
+// directions match ingredient names in the step's text instead.
+function stepUses(d, s){
+  return Array.isArray(s.uses)?s.uses:matchStepIngs(effectiveIngs(d),typeof s==='string'?s:s.text);
+}
+// A step's ingredients: `fresh` lines at this step's share of the scaled amount, and
+// `from` [{num, names}] for what an earlier step already prepped ("From step 2: potatoes,
+// onion"). `prior` is the dish's earlier steps in order, [{num, uses}]. Directions
+// optimized since shares were split (opt.v 2) mark prepped uses; older ones count an
+// ingredient as prepped once earlier steps used all of it.
+function stepIngs(d, s, srv, prior, split){
+  var ings=effectiveIngs(d), scaled=scaleIngs(ings,srv), fresh=[], from={};
+  stepUses(d,s).filter(function(u){ return ings[u.i]!=null; }).sort(function(a,b){ return a.i-b.i; }).forEach(function(u){
+    var first=null, used=0;
+    (prior||[]).forEach(function(p){ p.uses.forEach(function(e){ if(e.i!==u.i) return; if(first==null) first=p.num; if(!e.prepped) used+=e.part>0?e.part:1; }); });
+    if (first!=null&&(split?u.prepped:used>=0.999)) { (from[first]=from[first]||[]).push(ingName(ings[u.i])); return; }
+    // "1 1/2 tsp oil (1 tsp veggies + 1/2 tsp sauce)": a share drops the breakdown
+    fresh.push(u.part>0&&u.part<1?scaleIngs([ings[u.i].replace(/\s*\([^)]*\)/g,'')],srv*u.part)[0]:scaled[u.i]);
   });
+  return {fresh:fresh, from:Object.keys(from).sort(function(a,b){ return a-b; }).map(function(n){ return {num:+n, names:from[n]}; })};
+}
+// "2 medium yellow onions, diced" -> "medium yellow onions"
+function ingName(ing){
+  var p=parseIng(ing), n=(p.qty||p.unit?p.rest:ing).replace(/\([^)]*\)/g,'').split(',')[0].trim();
+  return n||ing;
 }
 // Words that don't tell ingredients apart on their own ("red" onion vs "red" pepper)
 var STEP_ING_STOP=/^(red|green|yellow|white|black|brown|purple|sweet|hot|ground|whole|light|dark|plain|low|sodium|reduced|fat|free|salted|unsalted|extra|virgin|baby|plus|more|about|cup|each|and|with|the|for|into|cut|piece|can|jar|bag|package|bunch|clove|sprig|stalk|head|inch|pinch|dash|ounce|pound)$/;
@@ -4843,9 +4873,11 @@ function matchStepIngs(ings, text){
   });
   return uses;
 }
-function stepIngsHTML(d, s, srv){
-  var list=stepIngs(d,s,srv);
-  return list.length?'<div class="ck-uses">'+list.map(function(i){ return '<span>'+esc(i)+'</span>'; }).join('')+'</div>':'';
+function stepIngsHTML(d, s, srv, prior, split){
+  var r=stepIngs(d,s,srv,prior,split);
+  if (!r.fresh.length&&!r.from.length) return '';
+  return '<div class="ck-uses">'+r.fresh.map(function(i){ return '<span>'+esc(i)+'</span>'; }).join('')
+    +r.from.map(function(f){ return '<span class="ck-from">From step '+f.num+': '+esc(f.names.join(', '))+'</span>'; }).join('')+'</div>';
 }
 var DISH_LETTERS='ABCDEFGH';
 function dishTag(k){ return '<i class="ck-dish d'+(k%4)+'">'+DISH_LETTERS[k]+'</i>'; }
@@ -4912,8 +4944,9 @@ function renderCookMode(){
     html+='<div class="ck-section">Steps <button class="ck-link" style="float:right;text-transform:none;letter-spacing:0" onclick="cook.showOriginal=true;renderCookMode()">Original directions</button></div>';
     var numOf={}, nowId=null;
     sched.rows.forEach(function(r){ numOf[r.step.id]=r.num; if(!nowId&&!cook.done[r.step.id]) nowId=r.step.id; });
+    var priorByDish={};  // each dish's steps so far, for "From step N" ingredient lines
     sched.rows.forEach(function(r){
-      var s=r.step, done=!!cook.done[s.id], d=dishes[s.dish];
+      var s=r.step, done=!!cook.done[s.id], d=dishes[s.dish], prior=priorByDish[s.dish]=priorByDish[s.dish]||[];
       var waits=(s.after||[]).map(function(a){ return numOf[a]; }).filter(Boolean).sort(function(a,b){ return a-b; });
       html+='<div class="ck-step'+(done?' done':'')+(s.id===nowId?' now':'')+'" onclick="toggleCookStep(\''+esc(s.id)+'\')">'
         +'<div class="ck-check">'+(done?'&#10003;':'')+'</div><div style="flex:1">'
@@ -4923,7 +4956,8 @@ function renderCookMode(){
         +(!s.handsOn?'<span class="ck-tag off">hands-off</span>':'')
         +(cook.cooks>1&&r.cook>=0?'<span class="ck-tag">Cook '+(r.cook?'B':'A')+'</span>':'')
         +(waits.length?'<span>after step '+waits.join(', ')+'</span>':'')
-        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepIngsHTML(d,s.src,srv)+stepTimerHTML(d,s.src,s.id)+stepStopwatchHTML(d,s.src,s.id)+'</div></div>';
+        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepIngsHTML(d,s.src,srv,prior,(cookOptimized(d)||{}).v>=2)+stepTimerHTML(d,s.src,s.id)+stepStopwatchHTML(d,s.src,s.id)+'</div></div>';
+      prior.push({num:r.num, uses:stepUses(d,s.src)});
     });
   }
   // Original directions: all dishes (toggle), or just the ones not optimized yet
@@ -4933,10 +4967,12 @@ function renderCookMode(){
     originals.forEach(function(k){
       var d=dishes[k];
       if(multi) html+='<div class="ck-dish-head">'+dishTag(k)+esc(d.name)+'</div>';
+      var prior=[];
       (d.steps||[]).forEach(function(s,i){
         var id='o'+k+'-'+i, done=!!cook.done[id];
         html+='<div class="ck-step'+(done?' done':'')+'" onclick="toggleCookStep(\''+id+'\')"><div class="ck-check">'+(done?'&#10003;':'')+'</div>'
-          +'<div style="flex:1"><div class="ck-meta"><strong>Step '+(i+1)+'</strong></div><div class="ck-text">'+esc(s)+'</div>'+stepIngsHTML(d,s,srv)+'</div></div>';
+          +'<div style="flex:1"><div class="ck-meta"><strong>Step '+(i+1)+'</strong></div><div class="ck-text">'+esc(s)+'</div>'+stepIngsHTML(d,s,srv,prior)+'</div></div>';
+        prior.push({num:i+1, uses:stepUses(d,s)});
       });
     });
   }

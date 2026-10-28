@@ -395,6 +395,9 @@ describe('Anthropic calls', () => {
           { id: 's1', kind: 'prep', text: 'Mince all the garlic; set aside half.', mins: 3, handsOn: true, after: [], uses: [{ ing: 1, part: 1 }] },
           { id: 's1', kind: 'cook', text: 'Bake.', mins: 999, handsOn: false, after: ['s1', 's9', 's1'],
             uses: [{ ing: 1, part: 0.25 }, { ing: 2, part: 0 }, { ing: 1, part: 0.25 }, { ing: 3, part: 1 }, { ing: 0, part: 1 }] },
+          { id: 's3', kind: 'cook', text: 'Toss.', mins: 5, handsOn: true, after: [],
+            uses: [{ ing: 1, part: 1, prepped: true }, { ing: 2, part: 0.4, prepped: false }, { ing: 1, part: 0.5, prepped: false }] },
+          { id: 's4', kind: 'cook', text: 'Serve.', mins: 1, handsOn: true, after: [], uses: [{ ing: 1, part: 1, prepped: true }] },
         ],
         changes: ['Minced garlic once'],
       }) }],
@@ -408,6 +411,9 @@ describe('Anthropic calls', () => {
     expect(out.steps[0].uses).toEqual([{ i: 0, part: 1 }]);  // 1-based ingredient numbers → indexes
     // repeats merged, a zero part means all of it, out-of-range numbers dropped
     expect(out.steps[1].uses).toEqual([{ i: 0, part: 0.5 }, { i: 1, part: 1 }]);
+    // a fresh share wins over a prepped reference to the same ingredient; prepped is kept when alone
+    expect(out.steps[2].uses).toEqual([{ i: 0, part: 0.5 }, { i: 1, part: 0.4 }]);
+    expect(out.steps[3].uses).toEqual([{ i: 0, part: 1, prepped: true }]);
     const req = calls[0].body;
     expect(req.output_config.effort).toBe('medium');
     expect(req.output_config.format.schema.properties.steps.items.required).toContain('handsOn');
@@ -415,6 +421,8 @@ describe('Anthropic calls', () => {
     expect(req.messages[0].content).toContain('2. Mince more garlic.');
     expect(req.messages[0].content).toContain('2. 1 tbsp olive oil');  // numbered for uses
     expect(req.output_config.format.schema.properties.steps.items.required).toContain('uses');
+    expect(req.output_config.format.schema.properties.steps.items.properties.uses.items.required).toContain('prepped');
+    expect(req.messages[0].content).toContain('fresh parts for one ingredient add up to 1');
   });
 
   it('/optimize-steps rejects missing or oversized step lists without calling Claude', async () => {

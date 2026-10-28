@@ -226,8 +226,8 @@ const OPTIMIZE_SCHEMA = {
             type: 'array',
             items: {
               type: 'object',
-              properties: { ing: { type: 'integer' }, part: { type: 'number' } },
-              required: ['ing', 'part'],
+              properties: { ing: { type: 'integer' }, part: { type: 'number' }, prepped: { type: 'boolean' } },
+              required: ['ing', 'part', 'prepped'],
               additionalProperties: false,
             },
           },
@@ -274,11 +274,18 @@ RULES
   resting, marinating, preheating, water coming to a boil); true otherwise.
   after: ids of steps that must finish before this one can start. List only real
   dependencies, so independent work (chopping while water boils) can overlap.
-  uses: every ingredient the step handles or adds, as ing = its number in INGREDIENTS
-  and part = the fraction of it used in this step (1 for all of it, 0.5 for half). An
-  ingredient prepped in one step and added in later ones is in each, e.g. "Mince all
-  the garlic" uses garlic part 1, then "Add half the garlic" uses it part 0.5. Empty
-  for steps that use no ingredients (preheating the oven).
+  uses: every ingredient the step handles or adds, as ing = its number in INGREDIENTS,
+  part = the fraction of that ingredient line this step uses, and prepped.
+  - The first step that touches an ingredient takes it fresh (prepped false). Its part
+    is this step's share only: when the line splits its amount ("2 tbsp oil (1 tbsp for
+    the veggies + 1 tbsp skillet)") or the recipe uses it in several steps (salt to
+    season the vegetables, more for the sauce), each step gets its own share and the
+    fresh parts for one ingredient add up to 1 across the recipe.
+  - A later step that uses what an earlier step already prepped (the chopped onion, the
+    minced garlic) lists it with prepped true and part = how much of it goes in here
+    (1 for all of it, 0.5 for half), e.g. "Mince all the garlic" uses garlic part 1
+    prepped false, then "Add half the garlic" uses it part 0.5 prepped true.
+  Empty for steps that use no ingredients (preheating the oven).
 - changes: 1-4 short notes on what you changed, e.g. "Minced all the garlic at once
   (was in steps 2 and 5)". Empty if nothing needed changing.${cookingNotesText(recipe.notes)}`,
     OPTIMIZE_SCHEMA, 'medium');
@@ -294,16 +301,20 @@ RULES
   const ids = new Set(steps.map(s => s.id));
   steps.forEach(s => { s.after = [...new Set((s.after || []).filter(a => ids.has(a) && a !== s.id))]; });
   // Ingredient numbers → 0-based indexes into the list sent (unknown ones dropped,
-  // repeats merged); part clamped to (0, 1], defaulting to all of it
+  // repeats merged, a fresh share winning over a prepped one); part clamped to (0, 1],
+  // defaulting to all of it
   steps.forEach(s => {
-    const parts = new Map();
+    const parts = new Map<number, { part: number, prepped: boolean }>();
     (Array.isArray(s.uses) ? s.uses : []).forEach(u => {
       const i = Math.round(Number(u && u.ing)) - 1;
       if (!(i >= 0 && i < recipe.ingredients.length)) return;
       const part = Number(u.part) > 0 ? Math.min(1, Number(u.part)) : 1;
-      parts.set(i, Math.min(1, (parts.get(i) || 0) + part));
+      const prepped = u.prepped === true, had = parts.get(i);
+      if (!had) parts.set(i, { part, prepped });
+      else if (had.prepped !== prepped) { if (!prepped) parts.set(i, { part, prepped }); }
+      else had.part = Math.min(1, had.part + part);
     });
-    s.uses = [...parts].map(([i, part]) => ({ i, part: Math.max(0.01, Math.round(part * 100) / 100) }));
+    s.uses = [...parts].map(([i, u]) => ({ i, part: Math.max(0.01, Math.round(u.part * 100) / 100), ...(u.prepped ? { prepped: true } : {}) }));
   });
   return { steps, changes: out.changes || [] };
 }
