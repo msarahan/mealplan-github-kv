@@ -53,6 +53,7 @@ All endpoints return JSON with CORS headers (`Access-Control-Allow-Origin: *`).
 | PUT | `/recipes/:code` | Save recipe library |
 | POST | `/generate` | Proxy to Anthropic API (keeps API key server-side) |
 | POST | `/parse-recipe` | Fetch URL server-side + extract recipe JSON via Claude |
+| POST | `/classify-recipes` | Diets, meal types and cooking for up to 25 saved recipes via Claude (old name `/classify-diets` still works) |
 | POST | `/optimize-steps` | Rewrite recipe steps for cooking mode (prep once, timings, dependencies, ingredients per step) via Claude |
 | POST | `/revise-recipe` | Revise a recipe from cooking feedback (returns revised recipe + list of changes) via Claude |
 
@@ -168,10 +169,16 @@ A meal may also have `"sides": [...]` — side dishes with the same recipe field
   "steps": ["Preheat oven to 400F.", "Bake 12-15 min."],
   "sourceUrl": "https://example.com/recipe",
   "notes": "",
+  "diets": ["omnivore", "mediterranean"],
   "mealTypes": ["dinner"],
+  "cooking": "at-meal",
   "savedAt": 1234567890000
 }
 ```
+`diets`, `mealTypes` (meal type ids, or `"side"`) and `cooking` come from import (`/parse-recipe`, `/parse-pdf`). `cooking` is how much cooking the dish needs when it's eaten: `none` (assembly only), `make-ahead` (cooked parts can be batch-cooked ahead, then eaten cold or reheated) or `at-meal`. Recipes missing any of them are classified once per page load in the background (`autoClassify` → `/classify-recipes`), which sets only the missing fields; the household can change all three in the recipe's Edit form. Until then `recipeMealTypes()` guesses from the name (breakfast foods → breakfast, salads/sandwiches/bowls/soups → lunch or dinner, else dinner).
+
+### Where saved recipes go
+Claude may only put a saved recipe in a meal type it's tagged for (`libraryPickFits`). Lunches Claude picks need no cooking at lunch time: leftovers, assembly, or components from a batch-prep task. A saved recipe is a lunch only if its `cooking` is `none`, or `make-ahead` with a `sharedPrepTips` task listing that lunch (`lunchBatchFor`; week plan only, since backfill/swap can't add tasks). Recipes with unknown `cooking` are never lunches. The prompts list each recipe only under the meals it may fill and carry `lunchRule()`. Claude's picks are checked afterwards: in a new plan a bad pick empties the slot (`emptySlot`, with its leftover lunch) and one backfill call refills it; backfill and swap ignore or refuse a bad pick. The freshness re-shuffle only swaps meals of the same type. The household's own picks (picker, pinned) aren't checked.
 
 A recipe, meal or side may also have `"optimized": {hash, steps, changes}`: cooking mode's directions from `/optimize-steps`, valid while `hash` (`cookHash()`: effective ingredients + steps) matches. Each step is `{id, kind, label, text, mins, handsOn, after, uses}`; `uses` is `[{i, part}]`, a 0-based index into the dish's effective ingredients and the fraction of it the step uses, shown under the step at the scaled amount (`stepIngs()`). Steps optimized before `uses` existed, and the original directions, match ingredient names in the step text instead (`matchStepIngs()`).
 

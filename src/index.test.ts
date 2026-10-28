@@ -332,26 +332,48 @@ describe('Anthropic calls', () => {
     expect(recipe.properties.diets.items.enum).toEqual(['climatarian', 'mediterranean', 'omnivore', 'plant-based']);
   });
 
-  const classify = (recipes: unknown) => SELF.fetch(`${BASE}/classify-diets`, {
+  it('asks which meals the recipe suits and how much cooking it needs when eaten', async () => {
+    const calls = mockAnthropic({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"recipes":[{"name":"Toast"}]}' }] });
+    await parseText();
+    const recipe = calls[0].body.output_config.format.schema.properties.recipes.items;
+    expect(recipe.required).toEqual(expect.arrayContaining(['mealTypes', 'cooking']));
+    expect(recipe.properties.mealTypes.items.enum).toEqual(['breakfast', 'lunch', 'dinner', 'snack', 'side']);
+    expect(recipe.properties.cooking.enum).toEqual(['none', 'make-ahead', 'at-meal']);
+    expect(calls[0].body.messages[0].content).toContain('cooking: how much cooking');
+  });
+
+  const classify = (recipes: unknown, path = '/classify-recipes') => SELF.fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ recipes }),
   });
 
-  it('/classify-diets returns diets per id and drops ids it was not asked about', async () => {
+  it('/classify-recipes returns diets, meal types and cooking per id and drops ids it was not asked about', async () => {
+    const r1 = { id: 'r-1', diets: ['omnivore', 'climatarian'], mealTypes: ['dinner'], cooking: 'at-meal' };
     const calls = mockAnthropic({
       stop_reason: 'end_turn',
       content: [{ type: 'text', text: JSON.stringify({ results: [
-        { id: 'r-1', diets: ['omnivore', 'climatarian'] },
-        { id: 'r-bogus', diets: ['omnivore'] },
+        r1,
+        { id: 'r-bogus', diets: ['omnivore'], mealTypes: ['lunch'], cooking: 'none' },
       ] }) }],
     });
-    const res = await classify([{ id: 'r-1', name: 'Salmon', ingredients: ['6 oz salmon'] }]);
-    expect(await res.json()).toEqual({ results: [{ id: 'r-1', diets: ['omnivore', 'climatarian'] }] });
-    expect(calls[0].body.messages[0].content).toContain('id=r-1 | Salmon | 6 oz salmon');
+    const res = await classify([{ id: 'r-1', name: 'Salmon', ingredients: ['6 oz salmon'], steps: ['Sear the salmon.'] }]);
+    expect(await res.json()).toEqual({ results: [r1] });
+    expect(calls[0].body.messages[0].content).toContain('id=r-1 | Salmon | 6 oz salmon | steps: Sear the salmon.');
+    const item = calls[0].body.output_config.format.schema.properties.results.items;
+    expect(item.required).toEqual(['id', 'diets', 'mealTypes', 'cooking']);
+    expect(item.properties.mealTypes.items.enum).toEqual(['breakfast', 'lunch', 'dinner', 'snack', 'side']);
+    expect(item.properties.cooking.enum).toEqual(['none', 'make-ahead', 'at-meal']);
   });
 
-  it('/classify-diets rejects empty and oversized batches without calling Claude', async () => {
+  it('/classify-diets still answers (old name)', async () => {
+    mockAnthropic({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"results":[]}' }] });
+    const res = await classify([{ id: 'r-1', name: 'Toast', ingredients: [] }], '/classify-diets');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ results: [] });
+  });
+
+  it('/classify-recipes rejects empty and oversized batches without calling Claude', async () => {
     const calls = mockAnthropic({ stop_reason: 'end_turn', content: [] });
     expect((await classify([])).status).toBe(400);
     const many = Array.from({ length: CLASSIFY_BATCH + 1 }, (_, i) => ({ id: 'r-' + i, name: 'x', ingredients: [] }));
