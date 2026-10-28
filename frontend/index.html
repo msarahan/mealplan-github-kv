@@ -4840,11 +4840,18 @@ function stepIngs(d, s, srv, prior, split){
   stepUses(d,s).filter(function(u){ return ings[u.i]!=null; }).sort(function(a,b){ return a.i-b.i; }).forEach(function(u){
     var first=null, used=0;
     (prior||[]).forEach(function(p){ p.uses.forEach(function(e){ if(e.i!==u.i) return; if(first==null) first=p.num; if(!e.prepped) used+=e.part>0?e.part:1; }); });
-    if (first!=null&&(split?u.prepped:used>=0.999)) { (from[first]=from[first]||[]).push(ingName(ings[u.i])); return; }
+    if (first!=null&&(split?u.prepped:used>=0.999)) { (from[first]=from[first]||[]).push(partOf(u.part)+ingName(ings[u.i])); return; }
     // "1 1/2 tsp oil (1 tsp veggies + 1/2 tsp sauce)": a share drops the breakdown
     fresh.push(u.part>0&&u.part<1?scaleIngs([ings[u.i].replace(/\s*\([^)]*\)/g,'')],srv*u.part)[0]:scaled[u.i]);
   });
   return {fresh:fresh, from:Object.keys(from).sort(function(a,b){ return a-b; }).map(function(n){ return {num:+n, names:from[n]}; })};
+}
+// "half of the " for a prepped ingredient a step uses only some of; '' for all of it
+var PART_WORDS={'1/2':'half','1/3':'a third','2/3':'two thirds','1/4':'a quarter','3/4':'three quarters'};
+function partOf(part){
+  if (!(part>0&&part<0.999)) return '';
+  var f=fmtQty(part);
+  return (PART_WORDS[f]||f)+' of the ';
 }
 // "2 medium yellow onions, diced" -> "medium yellow onions"
 function ingName(ing){
