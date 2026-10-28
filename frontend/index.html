@@ -3334,18 +3334,9 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     +'<div class="macro-pill"><div class="mp-val">'+(meal.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
     +'</div>';
 
-  if(meal.ingredients&&meal.ingredients.length){
-    var scaledIngs=scaleIngs(effectiveIngs(meal),dispSrv);
-    html+='<div class="detail-label">Ingredients'+(sides.length?' &middot; '+esc(meal.name):'')+'</div><ul class="ingredients-list">';
-    scaledIngs.forEach(function(ing){ html+='<li>'+esc(ing)+'</li>'; });
-    html+='</ul>';
-  }
-  if(meal.steps&&meal.steps.length){
-    html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
-    meal.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
-    html+='</ol>';
-  } else if(mealDishes(meal).some(function(d){ return d.stepsPending; })){
-    html+='<div class="detail-label">Instructions</div><div class="srv-note" id="steps-'+di+'-'+mi+'">'
+  // Ingredients and steps live in cooking mode (Cook button), not on the card
+  if(!(meal.steps&&meal.steps.length)&&mealDishes(meal).some(function(d){ return d.stepsPending; })){
+    html+='<div class="srv-note" id="steps-'+di+'-'+mi+'">'
       +(isOnline()?'Writing steps&hellip;':'Steps will be written when you&rsquo;re online.')+'</div>';
   }
   if(usesConvertedBeans(meal)) html+='<div class="prep-note batch"><span class="pn-icon">&#129752;</span><span class="pn-text">Uses home-cooked beans from your make-ahead prep instead of canned &mdash; skip draining and rinsing.</span></div>';
@@ -3359,9 +3350,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
       +'<span class="side-meta">'+[side.calories?side.calories+' kcal':null,side.prepMins?side.prepMins+' min':null].filter(Boolean).join(' &middot; ')+'</span>'
       +(side.libraryId?'':'<button class="side-save" onclick="saveSideAsRecipe('+di+','+mi+','+si+')" title="Save this side to your recipes">&#x2665; Save</button>')
       +'<button class="side-del" onclick="removeSide('+di+','+mi+','+si+')" title="Remove this side">&#10005;</button></div>'
-      +'<ul class="ingredients-list">'+scaleIngs(effectiveIngs(side),dispSrv).map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul>'
-      +((side.steps||[]).length?'<ol class="steps-list">'+side.steps.map(function(s,k){ return '<li><span class="step-num">'+(k+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; }).join('')+'</ol>'
-        :side.stepsPending&&meal.steps&&meal.steps.length?'<div class="srv-note">Writing steps&hellip;</div>':'')
+      +(!(side.steps||[]).length&&side.stepsPending&&meal.steps&&meal.steps.length?'<div class="srv-note">Writing steps&hellip;</div>':'')
       +'</div>';
   });
 
@@ -3853,17 +3842,7 @@ function renderRecipesTab(){
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.servings||1)+'</div><div class="mp-label">servings</div></div>'
         +'</div>';
-      if(recipe.ingredients&&recipe.ingredients.length){
-        html+='<div class="detail-label">Ingredients <span style="font-size:10px;font-weight:400;color:var(--ink-light)">per serving</span></div><ul class="ingredients-list">';
-        var dispIngs = scaleIngs(recipe.ingredients, recipe.servings||1);
-        dispIngs.forEach(function(i){ html+='<li>'+esc(i)+'</li>'; });
-        html+='</ul>';
-      }
-      if(recipe.steps&&recipe.steps.length){
-        html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
-        recipe.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
-        html+='</ol>';
-      }
+      // Ingredients and steps live in cooking mode (and Edit), not on the card
       if(recipe.notes) html+='<div class="recipe-notes-view">'+esc(recipe.notes)+'</div>';
       html+=revisionHistoryHTML(recipe);
       var pendRev=revisions[revisionKey(recipe)];
@@ -3907,18 +3886,10 @@ function renderRecipesTab(){
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.servings||1)+'</div><div class="mp-label">servings</div></div>'
         +'</div>';
-      if(recipe.ingredients&&recipe.ingredients.length){
-        html+='<div class="detail-label">Ingredients <span style="font-size:10px;font-weight:400;color:var(--ink-light)">per serving</span></div><ul class="ingredients-list">';
-        scaleIngs(recipe.ingredients,recipe.servings||1).forEach(function(i){html+='<li>'+esc(i)+'</li>';});
-        html+='</ul>';
-      }
-      if(recipe.steps&&recipe.steps.length){
-        html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
-        recipe.steps.forEach(function(s,si){html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>';});
-        html+='</ol>';
-      }
+      // Ingredients and steps live in cooking mode, as for saved recipes
       if(recipe.notes) html+='<div class="recipe-notes-view">'+esc(recipe.notes)+'</div>';
       if(recipe.sourceUrl) html+='<div style="margin-top:8px;font-size:11px;color:var(--ink-light)">Source: <a href="'+esc(recipe.sourceUrl)+'" target="_blank" style="color:var(--sage-dark)">'+esc(recipe.sourceUrl.replace(/^https?:\/\//,'').split('/')[0])+'</a></div>';
+      if(recipe.steps&&recipe.steps.length) html+='<button class="recipe-share-btn" onclick="openCookMode(\'community\',\''+recipe.id+'\');event.stopPropagation()">&#129489;&#8205;&#127859; Cooking mode</button>';
       html+='</div></div>';
     });
   }
@@ -4378,14 +4349,14 @@ async function suggestSide(di,mi,request){
 // directions are optimized once by Claude (/optimize-steps) and saved on the dish
 // (and its saved recipe) as {hash, steps, changes}; the combined schedule is
 // computed here, so the 1- vs 2-cook view needs no extra call.
-var cook=null;  // {kind:'meal'|'recipe', di, mi, rid, cooks, done:{}, loading:{}, errors:{}, showOriginal, revision}
+var cook=null;  // {kind:'meal'|'recipe'|'community', di, mi, rid, cooks, done:{}, loading:{}, errors:{}, showOriginal, revision}
 var cookWakeLock=null;
 
 function hashStr(s){ var h=5381; for(var i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(36); }
 function cookTarget(){
   if(!cook) return null;
   if(cook.kind==='meal') return currentPlan&&currentPlan.days[cook.di]&&currentPlan.days[cook.di].meals[cook.mi];
-  return savedRecipes.find(function(r){ return r.id===cook.rid; });
+  return (cook.kind==='community'?globalRecipes:savedRecipes).find(function(r){ return r.id===cook.rid; });
 }
 // The dishes being cooked: a meal's main + sides, or a single saved recipe
 function cookDishes(){
@@ -4412,7 +4383,7 @@ function saveDishChange(d){
 }
 
 function openCookMode(kind,a,b){
-  cook={kind:kind, di:kind==='meal'?a:null, mi:kind==='meal'?b:null, rid:kind==='recipe'?a:null, cooks:1, done:{}, loading:{}, errors:{}};
+  cook={kind:kind, di:kind==='meal'?a:null, mi:kind==='meal'?b:null, rid:kind!=='meal'?a:null, cooks:1, done:{}, loading:{}, errors:{}};
   if(!cookTarget()) { cook=null; return; }
   document.body.classList.add('cooking');
   document.getElementById('cook-mode').style.display='';
@@ -4665,7 +4636,10 @@ function renderCookMode(){
       });
     });
   }
-  html+=cookFeedbackHTML(dishes);
+  if(cook.kind!=='community') html+=cookFeedbackHTML(dishes);
+  else if(!savedRecipes.some(function(r){ return r.name.toLowerCase()===t.name.toLowerCase(); }))
+    html+='<div class="ck-section">Keep it?</div><div class="ck-card"><div class="fb-note" style="margin-bottom:6px">Add it to your library to save step times and revise it after cooking.</div>'
+      +'<button class="recipe-save-global-btn" onclick="addGlobalToLibrary(\''+t.id+'\');renderCookMode()">+ Add to My Library</button></div>';
   html+='</div></div>';
   el.innerHTML=html;
 }
