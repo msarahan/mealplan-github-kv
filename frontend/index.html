@@ -3,6 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<script>
+// Display size on tablets (Configure, saved per device): lay the page out at the screen
+// width divided by the scale, the way the browser's page zoom does, media queries
+// included. Phones and desktops keep the plain viewport.
+var DISPLAY_SCALES=[1,1.25,1.5,1.75,2];
+function isTabletDevice(){
+  try { return matchMedia('(any-pointer:coarse)').matches&&Math.min(screen.width,screen.height)>=600; } catch(e){ return false; }
+}
+function displayScale(){
+  var v=null; try { v=parseFloat(localStorage.getItem('nourish_display_scale')); } catch(e){}
+  return DISPLAY_SCALES.indexOf(v)>=0?v:1.75;
+}
+function applyDisplayScale(){
+  var m=document.querySelector('meta[name=viewport]'); if (!m) return;
+  var s=isTabletDevice()?displayScale():1;
+  if (s===1){ m.setAttribute('content','width=device-width, initial-scale=1.0, maximum-scale=1.0'); return; }
+  var a=screen.width, b=screen.height, land=matchMedia('(orientation: landscape)').matches;
+  var w=Math.round((land?Math.max(a,b):Math.min(a,b))/s);
+  m.setAttribute('content','width='+w+', initial-scale='+s+', maximum-scale='+s);
+}
+applyDisplayScale();
+window.addEventListener('orientationchange',function(){ setTimeout(applyDisplayScale,100); });
+</script>
 <title>Plan Appétit</title>
 <script src="/version.js"></script>
 <link rel="manifest" href="/manifest.json">
@@ -540,6 +563,17 @@ body.cooking #app{display:none}
 
   <!-- Configure -->
   <div class="section" id="section-configure">
+    <div class="card" id="display-card" style="display:none">
+      <div class="card-title">&#128269; Display size</div>
+      <div class="leftover-row">
+        <label for="display-scale">On this tablet</label>
+        <select id="display-scale" onchange="setDisplayScale(+this.value)">
+          <option value="1">100%</option><option value="1.25">125%</option><option value="1.5">150%</option>
+          <option value="1.75">175%</option><option value="2">200%</option>
+        </select>
+      </div>
+      <div class="srv-note" style="margin-top:4px">Scales text and controls like the browser&rsquo;s page zoom; keep the browser at 100%. Saved on this device only.</div>
+    </div>
     <div class="card">
       <div class="card-title">&#127807; Dietary approach</div>
       <div class="diet-grid" id="diet-grid">
@@ -3247,6 +3281,16 @@ function fitPlanToWeek(plan){
   });
   return plan;
 }
+function setDisplayScale(v){
+  try { localStorage.setItem('nourish_display_scale', String(v)); } catch(e){}
+  applyDisplayScale();
+}
+function renderDisplayScale(){
+  var card=document.getElementById('display-card'); if (!card) return;
+  card.style.display=isTabletDevice()?'':'none';
+  document.getElementById('display-scale').value=String(displayScale());
+}
+document.addEventListener('DOMContentLoaded',renderDisplayScale);
 function setPlanStart(v){ planStart=v; saveSettings(); renderDinnerDays(); renderPrepDays(); }
 function toggleDinnerDay(wd){
   var k=dinnerDays.indexOf(wd);
