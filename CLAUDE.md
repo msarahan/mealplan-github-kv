@@ -200,6 +200,7 @@ Quantities are expressed as US cooking measures (cups, tbsp, tsp, oz, lb).
 ## Sync behaviour
 - Settings, plan, and recipes sync to KV on every change
 - Grocery check-offs sync to KV on each tap, and poll every 8s when grocery tab is active
+- A checked grocery item stays in place (struck through) until the next deliberate scroll of the grocery tab (≥40px, not within 1s of a tap), which collapses it into an "In cart (N)" section at the bottom (`clearCheckedGrocery`); unchecking it there returns it to the list. Which items are cleared is per-device view state (`clearedItems`, not synced): items already checked when the household loads start in the cart, and items checked on another device show struck through and clear on this device's next scroll
 - Frontend uses relative API paths (`/plan/...`) — no hardcoded worker URL
 
 ## Claude Code tips

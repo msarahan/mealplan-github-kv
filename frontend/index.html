@@ -75,6 +75,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);mi
 .gi-form:hover{color:var(--sage);border-color:var(--sage-mid)}
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;font-family:'DM Sans',sans-serif;z-index:999;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
+#toast.show.has-action{pointer-events:auto}
+.toast-action{background:none;border:none;color:#b8d8a8;font:inherit;font-weight:600;margin-left:12px;padding:0;cursor:pointer}
 .modal-bg.open{display:flex}
 .modal{background:var(--white);border-radius:var(--radius);padding:22px;width:300px;max-width:90vw}
 .modal h3{font-family:'Lora',serif;font-size:17px;color:var(--ink);margin-bottom:5px}
@@ -363,6 +365,15 @@ body.cooking #app{display:none}
 .grocery-item.done .gi-check{background:var(--sage);border-color:var(--sage);color:white}
 .gi-name{font-size:13px;color:var(--ink);flex:1}
 .gi-qty{font-size:11px;color:var(--ink-light)}
+/* Checked items collapse out of the list on the next scroll, into "In cart" */
+.grocery-item.gi-clearing{overflow:hidden;transition:max-height .25s ease,opacity .25s ease,padding .25s ease,margin .25s ease,border-width .25s ease;opacity:0;padding-top:0;padding-bottom:0;margin-bottom:0;border-width:0}
+.grocery-cart{margin-top:4px}
+.cart-toggle{width:100%;display:flex;align-items:center;gap:6px;background:none;border:none;padding:6px 2px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--ink-mid);cursor:pointer;text-align:left}
+.cart-toggle .cart-arrow{display:inline-block;transition:transform .15s;font-size:10px;color:var(--ink-light)}
+.grocery-cart.open .cart-arrow{transform:rotate(90deg)}
+.cart-hint{margin-left:auto;font-size:10px;color:var(--ink-light)}
+.cart-list{display:none;margin-top:4px}
+.grocery-cart.open .cart-list{display:block}
 .add-item-row{display:flex;gap:7px;margin-top:12px;padding-top:12px;border-top:1px solid var(--sand-dark)}
 .add-item-input{flex:1;padding:7px 10px;border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);font-size:13px;font-family:'DM Sans',sans-serif;background:var(--sand);color:var(--ink);outline:none}
 .add-item-input:focus{border-color:var(--sage);background:var(--white)}
@@ -762,6 +773,9 @@ var frozenPref      = {};      // buy frozen (true) or fresh (false) by item key
 var swaps           = [];      // ingredient swaps: [{from:<grocery key>, fromLabel, to}], applied to every recipe
 var householdNotes  = '';      // free text about the household's week (who cooks when, prep time), for every planning prompt
 var checkedItems    = new Set();
+var clearedItems    = new Set();   // checked items moved to "In cart" on this device (view only, not synced)
+var cartOpen        = false;       // "In cart" section expanded
+var checksSynced    = false;       // first pullChecks for this household done (its checks start in the cart)
 var customItems     = [];
 var savedRecipes    = [];
 var globalRecipes   = [];
@@ -869,13 +883,21 @@ function hideSrcPopover() {
 document.addEventListener('click', hideSrcPopover);
 
 var _toastTimer = null;
-function showToast(msg) {
+// Optional action button (e.g. Undo); the toast hides when it's tapped
+function showToast(msg, actionLabel, onAction) {
   var el = document.getElementById('toast');
   if (!el) return;
   el.textContent = msg;
+  el.classList.toggle('has-action', !!actionLabel);
+  if (actionLabel) {
+    var b = document.createElement('button');
+    b.className = 'toast-action'; b.textContent = actionLabel;
+    b.onclick = function(e){ e.stopPropagation(); el.classList.remove('show'); onAction(); };
+    el.appendChild(b);
+  }
   el.classList.add('show');
   clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 3500);
+  _toastTimer = setTimeout(function(){ el.classList.remove('show'); }, actionLabel ? 5000 : 3500);
 }
 async function kvPut(path, data) {
   cacheSet(path, data);
@@ -1050,6 +1072,7 @@ function loadFamily(key, name) {
   enterApp();
   if (isNew) switchTab('configure');
   pullSettings().then(function(){ rebuildSrvTable(); buildOptList(); });
+  checksSynced = false; clearedItems = new Set();
   pullPlan();
   pullChecks();
   pullRecipes();
@@ -1424,11 +1447,66 @@ function changeServings(di, mi, delta) {
 }
 
 // ── Grocery item check-off ────────────────────────────────────────────────────
+// A checked item stays in place (struck through) so a mis-tap is easy to undo;
+// the next deliberate scroll moves it into "In cart" (clearCheckedGrocery).
 function toggleGroceryItem(el) {
   var id=el.dataset.itemId, done=el.classList.toggle('done');
   el.querySelector('.gi-check').textContent=done?'\u2713':'';
   if(done) checkedItems.add(id); else checkedItems.delete(id);
   kvPut('/checks/'+householdCode, Array.from(checkedItems));
+  _lastCheckAt=Date.now(); _scrollMoved=0;
+  // Unchecked in the cart: back to its place in the list
+  if(!done&&clearedItems.delete(id)) renderGrocery();
+}
+function toggleCart(){
+  cartOpen=!cartOpen;
+  var el=document.querySelector('.grocery-cart'); if(el) el.classList.toggle('open',cartOpen);
+}
+
+// ── Grocery clear-on-scroll ──────────────────────────────────────────────────
+// Scrolling the grocery tab (up or down) at least CLEAR_SCROLL_PX, starting a
+// moment after the last tap, collapses the checked items still showing into "In cart".
+var CLEAR_SCROLL_PX=40, CLEAR_TAP_GRACE_MS=1000;
+var _lastCheckAt=0, _scrollMoved=0, _lastScrollY=0, _lastTouchY=null;
+function groceryTabActive(){ var s=document.getElementById('section-grocery'); return !!s&&s.classList.contains('active'); }
+function noteGroceryScroll(dist){
+  if(!groceryTabActive()) return;
+  if(Date.now()-_lastCheckAt<CLEAR_TAP_GRACE_MS){ _scrollMoved=0; return; }  // the tap itself / a jiggle
+  _scrollMoved+=dist;
+  if(_scrollMoved>=CLEAR_SCROLL_PX){ _scrollMoved=0; clearCheckedGrocery(); }
+}
+// Swipes and wheel turns count directly, so a list that is too short to scroll,
+// or already at the end, still clears. Other scrolling (keyboard, scrollbar,
+// momentum after a swipe) counts by how far the page moved.
+var _lastWheelAt=0;
+window.addEventListener('touchstart',function(e){ _lastTouchY=e.touches[0].clientY; },{passive:true});
+window.addEventListener('touchmove',function(e){
+  var y=e.touches[0].clientY, d=_lastTouchY==null?0:Math.abs(y-_lastTouchY); _lastTouchY=y;
+  noteGroceryScroll(d);
+},{passive:true});
+window.addEventListener('touchend',function(e){ if(!e.touches.length) _lastTouchY=null; },{passive:true});
+window.addEventListener('wheel',function(e){ _lastWheelAt=Date.now(); noteGroceryScroll(Math.abs(e.deltaY)); },{passive:true});
+window.addEventListener('scroll',function(){
+  var y=window.scrollY, d=Math.abs(y-_lastScrollY); _lastScrollY=y;
+  if(_lastTouchY==null&&Date.now()-_lastWheelAt>200) noteGroceryScroll(d);
+},{passive:true});
+function clearCheckedGrocery(){
+  var els=Array.from(document.querySelectorAll('#grocery-content .grocery-item.done')).filter(function(el){ return !el.closest('.grocery-cart'); });
+  if(!els.length) return;
+  var ids=[];
+  els.forEach(function(el){
+    var id=el.dataset.itemId; if(ids.indexOf(id)<0) ids.push(id);
+    clearedItems.add(id);
+    el.style.maxHeight=el.offsetHeight+'px';
+  });
+  void document.body.offsetHeight;  // start the collapse from the current height
+  els.forEach(function(el){ el.classList.add('gi-clearing'); el.style.maxHeight='0px'; });
+  setTimeout(function(){
+    renderGrocery();
+    showToast('Moved '+ids.length+' to In cart','Undo',function(){
+      ids.forEach(function(id){ clearedItems.delete(id); }); renderGrocery();
+    });
+  },260);
 }
 function addCustomItem() {
   var inp=document.getElementById('custom-item-input'); if(!inp) return;
@@ -2492,13 +2570,19 @@ async function pullPlan(){
 async function pullChecks(){
   try{
     var arr=await kvGet('/checks/'+householdCode); if(!Array.isArray(arr)) return;
-    var s=new Set(arr);
+    var s=new Set(arr), rerender=false;
+    // Checked before this device opened the household: already in the cart.
+    // Later checks from someone else show struck through and clear on the next
+    // scroll here, so the list never shifts under a finger mid-tap.
+    if(!checksSynced){ checksSynced=true; clearedItems=new Set(arr); rerender=true; }
+    clearedItems.forEach(function(id){ if(!s.has(id)){ clearedItems.delete(id); rerender=true; } });  // unchecked elsewhere
+    checkedItems=s;
+    if(rerender){ if(currentPlan&&currentPlan.groceryList) renderGrocery(); return; }
     document.querySelectorAll('.grocery-item').forEach(function(el){
       var id=el.dataset.itemId; if(!id) return;
       var done=s.has(id), isDone=el.classList.contains('done');
       if(done!==isDone){ el.classList.toggle('done',done); el.querySelector('.gi-check').textContent=done?'\u2713':''; }
     });
-    checkedItems=s;
   }catch(e){}
 }
 function startSync(){
@@ -3041,7 +3125,7 @@ function buildManualPlan() {
   });
   currentPlan={summary:{}, days:days, groceryList:[], customItems:customItems, prepDays:prepDays.slice()};
   pinnedMeals={};
-  checkedItems=new Set(); kvPut('/checks/'+householdCode, []);
+  checkedItems=new Set(); clearedItems=new Set(); kvPut('/checks/'+householdCode, []);
   refreshPlanLocal();
   switchTab('plan');
 }
@@ -3537,9 +3621,23 @@ function renderGrocery() {
     +'<button class="export-btn" onclick="copyGroceryLink(this)" title="Copy a link that opens straight to this grocery list">&#128279; Link</button>'
     +(currentPlan&&currentPlan.days?'<button class="export-btn" onclick="rebuildGrocery()" title="Rebuild the list from the plan\'s meals">&#8635; Rebuild</button>':'')
     +'</div>';
+  // Checked items already cleared on this device go to "In cart" at the bottom,
+  // in list order, so they return to the same place when unchecked
+  var inCart=function(id){ return checkedItems.has(id)&&clearedItems.has(id); }, cart=[];
+  var cartRow=function(id,name,qty){ return '<div class="grocery-item done" data-item-id="'+esc(id)+'" onclick="toggleGroceryItem(this)">'
+    +'<div class="gi-check">\u2713</div><span class="gi-name">'+esc(name)+'</span><span class="gi-qty">'+esc(qty||'')+'</span></div>'; };
   allCats.forEach(function(c){
+    var secs=grocerySections(c,byCategory[c]).map(function(sec){
+      var keep=sec.items.filter(function(item){
+        var id='gi-'+ingKey(item.name);
+        if (inCart(id)) { cart.push(cartRow(id,groceryDisplayName(item),buyAsQty(item))); return false; }
+        return true;
+      });
+      return {label:sec.label, items:keep};
+    }).filter(function(sec){ return sec.items.length; });
+    if (!secs.length) return;
     html+='<div class="grocery-section"><div class="grocery-cat-label"><span class="cat-dot" style="background:'+(CAT_DOT[c]||'#5a5a5a')+'"></span>'+esc(c)+'</div>';
-    grocerySections(c,byCategory[c]).forEach(function(sec){
+    secs.forEach(function(sec){
       if (sec.label) html+='<div class="grocery-sub-label">'+esc(sec.label)+'</div>';
       sec.items.forEach(function(item){
       var id='gi-'+ingKey(item.name), done=checkedItems.has(id);
@@ -3573,9 +3671,13 @@ function renderGrocery() {
     });
     html+='</div>';
   });
-  if(custom.length>0){
+  var customShown=custom.filter(function(item){
+    if (inCart(item.id)) { cart.push(cartRow(item.id,item.name,item.qty)); return false; }
+    return true;
+  });
+  if(customShown.length>0){
     html+='<div class="grocery-section"><div class="grocery-cat-label"><span class="cat-dot" style="background:var(--sage)"></span>Added by you</div>';
-    custom.forEach(function(item){
+    customShown.forEach(function(item){
       var done=checkedItems.has(item.id);
       html+='<div class="grocery-item'+(done?' done':'')+'" data-item-id="'+item.id+'" onclick="toggleGroceryItem(this)">'
         +'<div class="gi-check">'+(done?'\u2713':'')+'</div>'
@@ -3584,6 +3686,11 @@ function renderGrocery() {
         +'</div>';
     });
     html+='</div>';
+  }
+  if(cart.length){
+    html+='<div class="grocery-section grocery-cart'+(cartOpen?' open':'')+'">'
+      +'<button class="cart-toggle" onclick="toggleCart()"><span class="cart-arrow">&#9654;</span>In cart ('+cart.length+')<span class="cart-hint">tap an item to put it back</span></button>'
+      +'<div class="cart-list">'+cart.join('')+'</div></div>';
   }
   html+='<div class="add-item-row">'
     +'<input class="add-item-input" id="custom-item-input" type="text" placeholder="Add item..." onkeydown="if(event.key===\'Enter\')addCustomItem()">'
