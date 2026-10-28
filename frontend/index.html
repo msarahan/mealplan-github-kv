@@ -3334,18 +3334,9 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
     +'<div class="macro-pill"><div class="mp-val">'+(meal.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
     +'</div>';
 
-  if(meal.ingredients&&meal.ingredients.length){
-    var scaledIngs=scaleIngs(effectiveIngs(meal),dispSrv);
-    html+='<div class="detail-label">Ingredients'+(sides.length?' &middot; '+esc(meal.name):'')+'</div><ul class="ingredients-list">';
-    scaledIngs.forEach(function(ing){ html+='<li>'+esc(ing)+'</li>'; });
-    html+='</ul>';
-  }
-  if(meal.steps&&meal.steps.length){
-    html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
-    meal.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
-    html+='</ol>';
-  } else if(mealDishes(meal).some(function(d){ return d.stepsPending; })){
-    html+='<div class="detail-label">Instructions</div><div class="srv-note" id="steps-'+di+'-'+mi+'">'
+  // Ingredients and steps live in cooking mode (Cook button), not on the card
+  if(!(meal.steps&&meal.steps.length)&&mealDishes(meal).some(function(d){ return d.stepsPending; })){
+    html+='<div class="srv-note" id="steps-'+di+'-'+mi+'">'
       +(isOnline()?'Writing steps&hellip;':'Steps will be written when you&rsquo;re online.')+'</div>';
   }
   if(usesConvertedBeans(meal)) html+='<div class="prep-note batch"><span class="pn-icon">&#129752;</span><span class="pn-text">Uses home-cooked beans from your make-ahead prep instead of canned &mdash; skip draining and rinsing.</span></div>';
@@ -3359,9 +3350,7 @@ function buildMealCardHTML(di, mi, meal, startOpen) {
       +'<span class="side-meta">'+[side.calories?side.calories+' kcal':null,side.prepMins?side.prepMins+' min':null].filter(Boolean).join(' &middot; ')+'</span>'
       +(side.libraryId?'':'<button class="side-save" onclick="saveSideAsRecipe('+di+','+mi+','+si+')" title="Save this side to your recipes">&#x2665; Save</button>')
       +'<button class="side-del" onclick="removeSide('+di+','+mi+','+si+')" title="Remove this side">&#10005;</button></div>'
-      +'<ul class="ingredients-list">'+scaleIngs(effectiveIngs(side),dispSrv).map(function(i){ return '<li>'+esc(i)+'</li>'; }).join('')+'</ul>'
-      +((side.steps||[]).length?'<ol class="steps-list">'+side.steps.map(function(s,k){ return '<li><span class="step-num">'+(k+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; }).join('')+'</ol>'
-        :side.stepsPending&&meal.steps&&meal.steps.length?'<div class="srv-note">Writing steps&hellip;</div>':'')
+      +(!(side.steps||[]).length&&side.stepsPending&&meal.steps&&meal.steps.length?'<div class="srv-note">Writing steps&hellip;</div>':'')
       +'</div>';
   });
 
@@ -3853,17 +3842,7 @@ function renderRecipesTab(){
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.prepMins||'?')+'</div><div class="mp-label">min prep</div></div>'
         +'<div class="macro-pill"><div class="mp-val">'+(recipe.servings||1)+'</div><div class="mp-label">servings</div></div>'
         +'</div>';
-      if(recipe.ingredients&&recipe.ingredients.length){
-        html+='<div class="detail-label">Ingredients <span style="font-size:10px;font-weight:400;color:var(--ink-light)">per serving</span></div><ul class="ingredients-list">';
-        var dispIngs = scaleIngs(recipe.ingredients, recipe.servings||1);
-        dispIngs.forEach(function(i){ html+='<li>'+esc(i)+'</li>'; });
-        html+='</ul>';
-      }
-      if(recipe.steps&&recipe.steps.length){
-        html+='<div class="detail-label">Instructions</div><ol class="steps-list">';
-        recipe.steps.forEach(function(s,si){ html+='<li><span class="step-num">'+(si+1)+'</span><span class="step-text">'+esc(s)+'</span></li>'; });
-        html+='</ol>';
-      }
+      // Ingredients and steps live in cooking mode (and Edit), not on the card
       if(recipe.notes) html+='<div class="recipe-notes-view">'+esc(recipe.notes)+'</div>';
       html+=revisionHistoryHTML(recipe);
       var pendRev=revisions[revisionKey(recipe)];
