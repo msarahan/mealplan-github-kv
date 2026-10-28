@@ -2763,7 +2763,8 @@ function beanRules() {
 // Prompt rules for sharedPrepTips scheduling
 function prepScheduleRules() {
   var s='\n\nMAKE-AHEAD SCHEDULE: each sharedPrepTips task is done on a single day, which must be early enough for its first meal '
-    +'and within keepsDays of its last meal; if a component is needed later than that, split it into separate tasks.';
+    +'and within keepsDays of its last meal; if a component is needed later than that, split it into separate tasks. '
+    +'Give that day as prepDay (a day name, e.g. "Sunday") and do not name the day in the task text.';
   if (prepDays.length) {
     var names=prepDays.map(function(i){ return DAY_NAMES[i]; }).join(' and ');
     s+=' The household prefers to do make-ahead prep on '+names+' (prep may also happen on the day before the plan starts, if it is one of these). '
@@ -3539,6 +3540,30 @@ function schedulePrep(plan, needBy, lastDi, keepsDays) {
   }
   return {di:Math.max(-1,needBy), preferred:!days.length};
 }
+// The day a task says it's done on: tip.prepDay, or a leading "Monday evening:" in its
+// text (older plans). {name, when, rest} with the text after that phrase; null if none.
+var PREP_DAY_RE=/^\s*(?:on\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(morning|afternoon|evening|night))?\s*[:,\-\u2013\u2014]\s*/i;
+function statedPrepDay(tip){
+  var m=PREP_DAY_RE.exec(tip.task||'');
+  var name=tip.prepDay||(m&&m[1]);
+  if (!name) return null;
+  return {name:String(name), when:m&&m[2]?m[2].toLowerCase():null, rest:m?tip.task.charAt(m[0].length).toUpperCase()+tip.task.slice(m[0].length+1):tip.task};
+}
+// Plan day index (-1 = the day before the plan) for the day a task names, when that day
+// still works: in time for its first meal and fresh through its last (keepsDays after
+// prep, as the prompt puts it). The latest such day if the weekday appears twice.
+function statedPrepDi(plan, tip, u){
+  var s=statedPrepDay(tip); if(!s) return null;
+  var dow=DAY_NAMES.map(function(n){ return n.toLowerCase(); }).indexOf(s.name.toLowerCase());
+  if (dow<0) return null;
+  var needBy=needByDi(u.firstDi,u.firstType), best=null;
+  for (var d=-1; d<=needBy; d++){
+    if (dowOf(plan,d)!==dow) continue;
+    if (tip.keepsDays&&u.lastDi-d>tip.keepsDays) continue;
+    best=d;
+  }
+  return best;
+}
 // Make-ahead days are chosen per plan (New plan panel) and stored on it. Plans made
 // before that fall back to the household's last-used days.
 function planPrepDays(plan) { return plan&&Array.isArray(plan.prepDays)?plan.prepDays:prepDays; }
@@ -3553,7 +3578,10 @@ function buildDayPrepMap(plan) {
     if(tip.prepDi!=null) slot={di:tip.prepDi, preferred:tip.preferred};  // bean batches schedule themselves
     else {
       var u=tipUses(plan,tip); if(!u) return;
-      slot=schedulePrep(plan, needByDi(u.firstDi,u.firstType), u.lastDi, tip.keepsDays);
+      // The day the task names when it works, so the box and the text agree
+      var stated=statedPrepDi(plan,tip,u), days=planPrepDays(plan);
+      slot=stated!=null?{di:stated, preferred:!days.length||days.indexOf(dowOf(plan,stated))>=0}
+        :schedulePrep(plan, needByDi(u.firstDi,u.firstType), u.lastDi, tip.keepsDays);
     }
     add(slot.di,{tip:tip, offDay:!slot.preferred});
     // e.g. soaking beans: the evening before the prep day
@@ -3569,8 +3597,9 @@ function dayPrepBoxHTML(entries) {
   // In time order: the night before, today's tasks, then tonight's soaks for tomorrow
   var when=function(e){ return e.nightBefore?0:e.tonight?2:1; };
   entries.slice().sort(function(a,b){ return when(a)-when(b); }).forEach(function(e){
-    var t=e.tip;
-    html+='<div class="day-prep-task">'+esc(t.task)
+    var t=e.tip, sd=statedPrepDay(t);
+    // The box already says which day; drop "Monday evening:" from the text, keep "evening"
+    html+='<div class="day-prep-task">'+esc(sd?sd.rest:t.task)+(sd&&sd.when?' <span class="dpt-when">('+sd.when+')</span>':'')
       +(e.tonight?' <span class="dpt-when">(tonight, for tomorrow)</span>':'')
       +(e.nightBefore?' <span class="dpt-when">(the night before)</span>':'')
       +(t.meals&&t.meals.length?'<div class="dpt-meta">For '+esc(t.meals.map(prettyMealRef).join(', '))

@@ -151,7 +151,7 @@ Household servings arrays are indexed Mon=0 through Sun=6.
 
 A meal may also have `"sides": [...]` — side dishes with the same recipe fields as a meal (optionally `libraryId`), sharing the meal's servings; meal nutrition totals include them.
 
-`sharedPrepTips` entries are objects: `{task, keepsDays, qualityNote?, meals, makes, ingredients}`. `makes` names a batch that meals use as an ingredient ("spinach-feta egg muffins"); `ingredients` is that batch's raw ingredients with whole-batch totals. The grocery list buys a batch's ingredients when a meal refers to it, and skips the meals' references (`plannedDishRef`). Plans made before these fields get them from one Claude call when the grocery list is shown (`ensureBatchTipIngredients`).
+`sharedPrepTips` entries are objects: `{task, keepsDays, qualityNote?, meals, makes, ingredients, prepDay?}`. `prepDay` is the day name the task is done on (older plans may say it at the start of `task`, "Monday evening: …"); the plan shows the task on that day when it's in time for the first meal and within `keepsDays` of the last (`statedPrepDi`), otherwise on the day `schedulePrep` picks. `makes` names a batch that meals use as an ingredient ("spinach-feta egg muffins"); `ingredients` is that batch's raw ingredients with whole-batch totals. The grocery list buys a batch's ingredients when a meal refers to it, and skips the meals' references (`plannedDishRef`). Plans made before these fields get them from one Claude call when the grocery list is shown (`ensureBatchTipIngredients`).
 
 ### Recipe object
 ```json
