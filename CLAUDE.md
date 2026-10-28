@@ -53,7 +53,7 @@ All endpoints return JSON with CORS headers (`Access-Control-Allow-Origin: *`).
 | PUT | `/recipes/:code` | Save recipe library |
 | POST | `/generate` | Proxy to Anthropic API (keeps API key server-side) |
 | POST | `/parse-recipe` | Fetch URL server-side + extract recipe JSON via Claude |
-| POST | `/optimize-steps` | Rewrite recipe steps for cooking mode (prep once, timings, dependencies) via Claude |
+| POST | `/optimize-steps` | Rewrite recipe steps for cooking mode (prep once, timings, dependencies, ingredients per step) via Claude |
 | POST | `/revise-recipe` | Revise a recipe from cooking feedback (returns revised recipe + list of changes) via Claude |
 
 ## KV key schema
@@ -172,6 +172,8 @@ A meal may also have `"sides": [...]` — side dishes with the same recipe field
   "savedAt": 1234567890000
 }
 ```
+
+A recipe, meal or side may also have `"optimized": {hash, steps, changes}`: cooking mode's directions from `/optimize-steps`, valid while `hash` (`cookHash()`: effective ingredients + steps) matches. Each step is `{id, kind, label, text, mins, handsOn, after, uses}`; `uses` is `[{i, part}]`, a 0-based index into the dish's effective ingredients and the fraction of it the step uses, shown under the step at the scaled amount (`stepIngs()`). Steps optimized before `uses` existed, and the original directions, match ingredient names in the step text instead (`matchStepIngs()`).
 
 ## Diet options
 - `climatarian` — avoid beef/lamb, prefer legumes/fish/chicken/plant proteins
