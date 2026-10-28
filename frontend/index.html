@@ -629,6 +629,10 @@ body.cooking #app{display:none}
           </select>
         </div>
         <div class="srv-note" style="margin-top:4px">Start on your shopping day, so that day&rsquo;s meals use the fresh groceries.</div>
+        <div class="leftover-row" style="margin-top:8px">
+          <label for="shop-after">Shopping happens</label>
+          <select id="shop-after" onchange="shopAfter=this.value;saveSettings()"></select>
+        </div>
         <div class="param-name" style="margin-top:12px;font-size:12px">Nights someone cooks dinner</div>
         <div class="recipe-filter-row" id="dinner-days-row" style="margin:6px 0 0"></div>
         <div class="srv-note" style="margin-top:7px">The plan covers the 7 days until your next shopping day. Every day gets its other meals; nights you turn off get no dinner. Kept for every week until you change it.</div>
@@ -770,6 +774,7 @@ var libraryShare    = 'some';  // off | some | most: how much of a generated pla
 var beanPrep        = 'can';   // can | soak | pressure: canned beans, or cook dried beans in batches
 var prepDays        = [];      // preferred make-ahead days, 0=Mon..6=Sun; empty = no preference
 var planStart       = 0;       // weekday new plans start on, 0=Mon..6=Sun (the shopping day)
+var shopAfter       = 'lunch'; // the shopping day has no meals up to this one (meal id; '' = shops before the first meal)
 var dinnerDays      = [0,1,2,3,4,5,6];  // weekdays someone cooks dinner; other days get breakfast/lunch but no dinner
 var buyAs           = {};      // grocery form by item key, e.g. {parsley:'prepped'}; default is whole
 var frozenPref      = {};      // buy frozen (true) or fresh (false) by item key; see FROZEN_DEFAULT
@@ -942,7 +947,7 @@ function settingsObj() {
   return {
     activeDiets: Array.from(activeDiets), optPriority: optPriority,
     planDays: planWeek().length, dinnerDays: dinnerDays, meals: meals, mealsPerDay: meals.length,  // planDays, mealsPerDay: for older app versions
-    householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays, planStart: planStart,
+    householdServings: householdServings, leftoverLunches: leftoverLunches, libraryShare: libraryShare, beanPrep: beanPrep, prepDays: prepDays, planStart: planStart, shopAfter: shopAfter,
     buyAs: buyAs, frozenPref: frozenPref, swaps: swaps, householdNotes: householdNotes, customItems: customItems,
     cal:     document.getElementById('cal-target').value,
     protein: document.getElementById('protein-target').value,
@@ -959,11 +964,11 @@ function saveSettings() {
 function resetSettings() {
   activeDiets = new Set(['climatarian']);
   optPriority = OPT_DEFS.map(function(o){ return o.id; });
-  planDays = 7; meals = JSON.parse(JSON.stringify(DEFAULT_MEALS)); leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; planStart = 0; dinnerDays = [0,1,2,3,4,5,6]; buyAs = {}; frozenPref = {}; swaps = []; householdNotes = ''; customItems = [];
+  planDays = 7; meals = JSON.parse(JSON.stringify(DEFAULT_MEALS)); leftoverLunches = 0; libraryShare = 'some'; beanPrep = 'can'; prepDays = []; planStart = 0; shopAfter = 'lunch'; dinnerDays = [0,1,2,3,4,5,6]; buyAs = {}; frozenPref = {}; swaps = []; householdNotes = ''; customItems = [];
   document.getElementById('household-notes').value = '';
   householdServings = { breakfast:[2,2,2,2,2,4,4], lunch:[2,2,2,2,2,4,4], dinner:[4,4,4,4,4,4,4], snack:[2,2,2,2,2,2,2] };
   document.getElementById('plan-start').value = 0;
-  renderDinnerDays();
+  renderDinnerDays(); renderShopAfter();
   renderMealList(); renderSwaps();
   document.getElementById('cal-target').value = 2000;
   document.getElementById('protein-target').value = 120;
@@ -986,6 +991,7 @@ function applySettings(s) {
   if (s.beanPrep)          beanPrep = s.beanPrep;
   if (Array.isArray(s.prepDays)) prepDays = s.prepDays;
   if (s.planStart>=0&&s.planStart<=6) planStart = +s.planStart;
+  if (typeof s.shopAfter==='string') shopAfter = s.shopAfter;
   if (Array.isArray(s.dinnerDays)&&s.dinnerDays.length) dinnerDays = s.dinnerDays;
   if (s.buyAs&&typeof s.buyAs==='object') buyAs = s.buyAs;
   if (s.frozenPref&&typeof s.frozenPref==='object') frozenPref = s.frozenPref;
@@ -996,6 +1002,7 @@ function applySettings(s) {
   if (s.customItems)       customItems = s.customItems;
   renderDinnerDays();
   document.getElementById('plan-start').value = planStart;
+  renderShopAfter();
   renderMealList();
   if (s.cal)     document.getElementById('cal-target').value = s.cal;
   if (s.protein) document.getElementById('protein-target').value = s.protein;
@@ -1218,6 +1225,7 @@ function renderMealList(){
   }).join('');
 }
 function mealsChanged(){
+  renderShopAfter();
   saveSettings(); renderMealList(); rebuildSrvTable();
   if (currentPlan&&currentPlan.days) renderPlan(currentPlan);  // names show on the plan
 }
@@ -2989,7 +2997,7 @@ function buildPrompt() {
   if (leftoverLunches>0) optLines+='\nLEFTOVER LUNCHES: Include exactly '+leftoverLunches+' leftover lunch(es). For each: mark the source dinner with "leftoversForLunch":true AND replace an appropriate LATER weekday lunch slot with {"type":"lunch","name":"[dinner name]","isLeftover":true,"sourceDinner":"[dinner name]"}. Choose the leftover day based on food safety and taste quality — fish/seafood within 2 days, poultry/meat within 3 days, vegetarian/grains/legumes within 4-5 days. The leftover does NOT have to be the very next day.';
   return dietSection+'\n\nMEALS EACH DAY, in this order (use the quoted id as each meal\'s "type"; plan food that suits each meal\'s name and description):\n'
     +mealsSection(types)+'\nDAYS: '+planDayNames().length+', in this order: '+planDayNames().join(', ')
-    +' (day 1 is the shopping day: the household shops that morning, so its meals can use fresh groceries)'
+    +shopDayNote()
     +noDinnerNote()
     +'\nDAILY TARGETS: ~'+cal+' kcal, ~'+pro+'g protein, ~'+carb+'g carbs\n\n'
     +optLines
@@ -3185,22 +3193,44 @@ async function generatePlan() {
 // Empty slots for each day/meal type; the user fills them from saved recipes and
 // the grocery list is computed locally.
 var DAY_NAMES=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-// The next plan's week, [{name, wd, dinner}]: the 7 days from the start (shopping) day
-// to the day before the next one. Every day has its other meals; `dinner` is false on
-// nights nobody cooks.
+// The next plan's week, [{name, wd, dinner, shop}]: the 7 days from the start (shopping)
+// day to the day before the next one. Every day has its other meals; `dinner` is false on
+// nights nobody cooks, and the shopping day (`shop`) starts after the shopping trip.
 function planWeek(){
   var out=[];
-  for (var o=0;o<7;o++){ var wd=(planStart+o)%7; out.push({name:DAY_NAMES[wd], wd:wd, dinner:dinnerDays.indexOf(wd)>=0}); }
+  for (var o=0;o<7;o++){ var wd=(planStart+o)%7; out.push({name:DAY_NAMES[wd], wd:wd, dinner:dinnerDays.indexOf(wd)>=0, shop:o===0}); }
   return out;
 }
+// Meals the shopping day skips: every meal up to and including shopAfter
+function preShopMealTypes(){
+  var types=getMealTypes(), k=types.indexOf(shopAfter);
+  return k<0?[]:types.slice(0,k+1);
+}
+function renderShopAfter(){
+  var sel=document.getElementById('shop-after'); if (!sel) return;
+  var ms=meals.slice(0,-1);
+  sel.innerHTML='<option value="">Before '+esc(mealLabel(meals[0]&&meals[0].id))+'</option>'
+    +ms.map(function(m){ return '<option value="'+esc(m.id)+'">After '+esc(mealLabel(m.id))+'</option>'; }).join('');
+  sel.value=preShopMealTypes().length?shopAfter:'';
+}
 function planDayNames(){ return planWeek().map(function(w){ return w.name; }); }
+// For the prompt: the shopping day, and which of its meals come before the trip
+function shopDayNote(){
+  var skip=preShopMealTypes();
+  if (!skip.length) return ' (day 1 is the shopping day: the household shops that morning, so its meals can use fresh groceries)';
+  return ' (day 1 is the shopping day: the household shops after '+mealLabel(skip[skip.length-1])+', so day 1 has NO '
+    +skip.map(function(t){ return '"'+t+'"'; }).join(' or ')+' - leave them out; its later meals can use fresh groceries)';
+}
 // For the prompt: nights with no dinner
 function noDinnerNote(){
   var off=planWeek().filter(function(w){ return !w.dinner; }).map(function(w){ return w.name; });
   return off.length?'\nNO DINNER on '+off.join(' or ')+' (nobody cooks that night): plan the other meals as usual and leave out dinner on those days.':'';
 }
 // A day's meals: on a no-dinner night, everything but dinner
-function dayMealTypes(w){ return getMealTypes().filter(function(t){ return w.dinner||t!=='dinner'; }); }
+function dayMealTypes(w){
+  var skip=w.shop?preShopMealTypes():[];
+  return getMealTypes().filter(function(t){ return (w.dinner||t!=='dinner')&&skip.indexOf(t)<0; });
+}
 // Lay Claude's days onto the week (matched by name, else in order); no-dinner nights drop any dinner
 function fitPlanToWeek(plan){
   var week=planWeek(), got=plan.days||[], byName={};
@@ -3212,6 +3242,7 @@ function fitPlanToWeek(plan){
     // A day Claude left out gets empty slots, so Backfill can fill them
     if (!d.meals||!d.meals.length) d.meals=dayMealTypes(w).map(placeholderMeal);
     if (!w.dinner){ d.meals=(d.meals||[]).filter(function(m){ return m.type!=='dinner'; }); d.noDinner=true; }
+    if (w.shop&&preShopMealTypes().length){ var skip=preShopMealTypes(); d.meals=d.meals.filter(function(m){ return skip.indexOf(m.type)<0; }); d.shopDay=true; }
     return d;
   });
   return plan;
@@ -3242,6 +3273,7 @@ function buildManualPlan() {
   planWeek().forEach(function(w){
     var d={dayName:w.name, meals:dayMealTypes(w).map(placeholderMeal)};
     if (!w.dinner) d.noDinner=true;
+    if (w.shop&&preShopMealTypes().length) d.shopDay=true;
     days.push(d);
   });
   currentPlan={summary:{}, days:days, groceryList:[], customItems:customItems, prepDays:prepDays.slice()};
@@ -3527,6 +3559,7 @@ function renderPlan(plan) {
     if(_dayPrepMap[di]&&_dayPrepMap[di].length) html+=dayPrepBoxHTML(_dayPrepMap[di]);
     day.meals.forEach(function(meal,mi){ html+=buildMealCardHTML(di,mi,meal,isToday); });
     if(day.noDinner) html+='<div class="srv-note" style="padding:4px 2px 8px">No dinner cooked tonight</div>';
+    if(day.shopDay) html+='<div class="srv-note" style="padding:4px 2px 8px">Shopping day &mdash; meals start after the trip</div>';
     html+='</div>';
   });
   pc.innerHTML=html;
