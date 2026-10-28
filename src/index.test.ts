@@ -370,23 +370,29 @@ describe('Anthropic calls', () => {
       stop_reason: 'end_turn',
       content: [{ type: 'text', text: JSON.stringify({
         steps: [
-          { id: 's1', kind: 'prep', text: 'Mince all the garlic; set aside half.', mins: 3, handsOn: true, after: [] },
-          { id: 's1', kind: 'cook', text: 'Bake.', mins: 999, handsOn: false, after: ['s1', 's9', 's1'] },
+          { id: 's1', kind: 'prep', text: 'Mince all the garlic; set aside half.', mins: 3, handsOn: true, after: [], uses: [{ ing: 1, part: 1 }] },
+          { id: 's1', kind: 'cook', text: 'Bake.', mins: 999, handsOn: false, after: ['s1', 's9', 's1'],
+            uses: [{ ing: 1, part: 0.25 }, { ing: 2, part: 0 }, { ing: 1, part: 0.25 }, { ing: 3, part: 1 }, { ing: 0, part: 1 }] },
         ],
         changes: ['Minced garlic once'],
       }) }],
     });
-    const res = await optimize({ name: 'Salmon', ingredients: ['2 cloves garlic'], steps: ['Mince garlic.', 'Mince more garlic.'] });
+    const res = await optimize({ name: 'Salmon', ingredients: ['2 cloves garlic', '1 tbsp olive oil'], steps: ['Mince garlic.', 'Mince more garlic.'] });
     const out = await res.json() as any;
     expect(out.changes).toEqual(['Minced garlic once']);
     expect(out.steps[1].id).not.toBe('s1');           // duplicate id renamed
     expect(out.steps[1].mins).toBe(600);              // clamped
     expect(out.steps[1].after).toEqual(['s1']);       // unknown id dropped, deduped
+    expect(out.steps[0].uses).toEqual([{ i: 0, part: 1 }]);  // 1-based ingredient numbers → indexes
+    // repeats merged, a zero part means all of it, out-of-range numbers dropped
+    expect(out.steps[1].uses).toEqual([{ i: 0, part: 0.5 }, { i: 1, part: 1 }]);
     const req = calls[0].body;
     expect(req.output_config.effort).toBe('medium');
     expect(req.output_config.format.schema.properties.steps.items.required).toContain('handsOn');
     expect(req.output_config.format.schema.properties.steps.items.required).toContain('label');
     expect(req.messages[0].content).toContain('2. Mince more garlic.');
+    expect(req.messages[0].content).toContain('2. 1 tbsp olive oil');  // numbered for uses
+    expect(req.output_config.format.schema.properties.steps.items.required).toContain('uses');
   });
 
   it('/optimize-steps rejects missing or oversized step lists without calling Claude', async () => {
