@@ -184,8 +184,9 @@ ${list}`, CLASSIFY_SCHEMA);
 
 // ── Recipe direction optimization (cooking mode) ─────────────────────────────
 // Claude rewrites a recipe's steps so repeated prep happens once, and tags each
-// step with minutes, hands-on vs hands-off, and the steps it must wait for. The
-// app builds the timeline (and 1- vs 2-cook schedules) from those.
+// step with minutes, hands-on vs hands-off, the steps it must wait for, and the
+// ingredients it uses. The app builds the timeline (and 1- vs 2-cook schedules)
+// from those, and shows each step's ingredients at the scaled amounts.
 const OPTIMIZE_SCHEMA = {
   type: 'object',
   properties: {
@@ -201,8 +202,17 @@ const OPTIMIZE_SCHEMA = {
           mins: { type: 'number' },
           handsOn: { type: 'boolean' },
           after: strList,
+          uses: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { ing: { type: 'integer' }, part: { type: 'number' } },
+              required: ['ing', 'part'],
+              additionalProperties: false,
+            },
+          },
         },
-        required: ['id', 'kind', 'label', 'text', 'mins', 'handsOn', 'after'],
+        required: ['id', 'kind', 'label', 'text', 'mins', 'handsOn', 'after', 'uses'],
         additionalProperties: false,
       },
     },
@@ -212,14 +222,15 @@ const OPTIMIZE_SCHEMA = {
   additionalProperties: false,
 };
 
-// recipe: {name, ingredients, steps}. Returns {steps, changes} with ids/deps cleaned up.
+// recipe: {name, ingredients, steps}. Returns {steps, changes} with ids/deps cleaned up;
+// each step's uses is [{i, part}]: a 0-based index into ingredients and the fraction used.
 async function optimizeSteps(env, recipe) {
   const out = await callStructured(env,
     `Rewrite these recipe directions so they are efficient for a home cook.
 
 RECIPE: ${recipe.name}
 INGREDIENTS:
-${recipe.ingredients.map(i => '- ' + i).join('\n')}
+${recipe.ingredients.map((i, n) => `${n + 1}. ${i}`).join('\n')}
 DIRECTIONS:
 ${recipe.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
@@ -227,7 +238,8 @@ RULES
 - Do each kind of prep once: if an ingredient is chopped/minced/grated/zested/juiced in more
   than one step, do all of it in one early "prep" step and say how to divide it, using
   fractions or "the rest" (e.g. "Mince all the garlic; set aside about half for the sauce").
-  Never write ingredient amounts; the app shows scaled amounts separately.
+  Never write ingredient amounts in the text; the app shows each step's scaled amounts
+  from uses.
 - Group related prep (e.g. chop all the vegetables together) when it saves time.
 - Start long hands-off work early: preheat the oven or boil water first; marinate, soak,
   or chill as soon as possible.
@@ -242,6 +254,11 @@ RULES
   resting, marinating, preheating, water coming to a boil); true otherwise.
   after: ids of steps that must finish before this one can start. List only real
   dependencies, so independent work (chopping while water boils) can overlap.
+  uses: every ingredient the step handles or adds, as ing = its number in INGREDIENTS
+  and part = the fraction of it used in this step (1 for all of it, 0.5 for half). An
+  ingredient prepped in one step and added in later ones is in each, e.g. "Mince all
+  the garlic" uses garlic part 1, then "Add half the garlic" uses it part 0.5. Empty
+  for steps that use no ingredients (preheating the oven).
 - changes: 1-4 short notes on what you changed, e.g. "Minced all the garlic at once
   (was in steps 2 and 5)". Empty if nothing needed changing.${cookingNotesText(recipe.notes)}`,
     OPTIMIZE_SCHEMA, 'medium');
@@ -256,6 +273,18 @@ RULES
   });
   const ids = new Set(steps.map(s => s.id));
   steps.forEach(s => { s.after = [...new Set((s.after || []).filter(a => ids.has(a) && a !== s.id))]; });
+  // Ingredient numbers → 0-based indexes into the list sent (unknown ones dropped,
+  // repeats merged); part clamped to (0, 1], defaulting to all of it
+  steps.forEach(s => {
+    const parts = new Map();
+    (Array.isArray(s.uses) ? s.uses : []).forEach(u => {
+      const i = Math.round(Number(u && u.ing)) - 1;
+      if (!(i >= 0 && i < recipe.ingredients.length)) return;
+      const part = Number(u.part) > 0 ? Math.min(1, Number(u.part)) : 1;
+      parts.set(i, Math.min(1, (parts.get(i) || 0) + part));
+    });
+    s.uses = [...parts].map(([i, part]) => ({ i, part: Math.max(0.01, Math.round(part * 100) / 100) }));
+  });
   return { steps, changes: out.changes || [] };
 }
 
@@ -520,7 +549,8 @@ ${sourceText}`;
     }
 
     // ── POST /optimize-steps ─────────────────────────────────────────────────────
-    // Body: { name, ingredients: string[], steps: string[] } → { steps: [...], changes: string[] }
+    // Body: { name, ingredients: string[], steps: string[] }
+    //   → { steps: [{id, kind, label, text, mins, handsOn, after, uses: [{i, part}]}], changes: string[] }
     if (request.method === 'POST' && path === '/optimize-steps') {
       const body = await request.json().catch(() => ({}));
       const steps = Array.isArray(body.steps) ? body.steps.filter(s => typeof s === 'string' && s.trim()) : [];

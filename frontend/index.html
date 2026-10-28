@@ -172,6 +172,8 @@ body.cooking #app{display:none}
 .ck-tag{font-size:10px;padding:1px 7px;border-radius:20px;background:var(--sage-light);color:var(--sage-dark);font-weight:500}
 .ck-tag.off{background:var(--clay-light);color:var(--clay-dark)}
 .ck-text{font-size:16px;line-height:1.45;color:var(--ink)}
+.ck-uses{margin-top:5px;font-size:13px;line-height:1.4;color:var(--sage-dark)}
+.ck-uses span+span::before{content:' · ';color:var(--ink-light)}
 .ck-timer{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:14px;color:var(--clay-dark)}
 .ck-timer b{font-variant-numeric:tabular-nums;font-size:18px}
 .ck-timer button{padding:5px 11px;border-radius:20px;border:1px solid #e8c4b0;background:var(--white);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--clay-dark);cursor:pointer}
@@ -4388,6 +4390,43 @@ function stepLabel(s){
   var words=String(s.text||'').split(/[.;:,(]/)[0].trim().split(/\s+/);
   return words.slice(0,5).join(' ')+(words.length>5?'…':'');
 }
+
+// A step's ingredients at the scaled amounts. Directions optimized with ingredient
+// data list them per step (uses: [{i, part}], i indexes effectiveIngs); older ones
+// and the original directions match ingredient names in the step's text instead.
+function stepIngs(d, s, srv){
+  var ings=effectiveIngs(d), scaled=scaleIngs(ings,srv);
+  var uses=Array.isArray(s.uses)?s.uses:matchStepIngs(ings,typeof s==='string'?s:s.text);
+  return uses.filter(function(u){ return ings[u.i]!=null; }).sort(function(a,b){ return a.i-b.i; }).map(function(u){
+    return u.part>0&&u.part<1?scaleIngs([ings[u.i]],srv*u.part)[0]:scaled[u.i];  // "half the garlic"
+  });
+}
+// Words that don't tell ingredients apart on their own ("red" onion vs "red" pepper)
+var STEP_ING_STOP=/^(red|green|yellow|white|black|brown|purple|sweet|hot|ground|whole|light|dark|plain|low|sodium|reduced|fat|free|salted|unsalted|extra|virgin|baby|plus|more|about|cup|each|and|with|the|for|into|cut|piece|can|jar|bag|package|bunch|clove|sprig|stalk|head|inch|pinch|dash|ounce|pound)$/;
+// Ingredients named in a step: the whole name ("olive oil"), or failing that a word
+// of it that no other ingredient shares ("oil" when only olive oil is listed)
+function matchStepIngs(ings, text){
+  var t=' '+String(text||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z]+/g,' ')+' ';
+  var has=function(w){ return t.indexOf(' '+w+' ')>=0||t.indexOf(' '+pluralWord(w)+' ')>=0||t.indexOf(' '+w+'s ')>=0; };
+  var names=ings.map(function(ing){
+    var p=parseIng(ing), n=(p.qty||p.unit?p.rest:ing).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase()
+      .replace(/\([^)]*\)/g,' ').split(',')[0].split(/\s+or\s+/)[0].replace(PREP_WORDS,' ').replace(FORM_RE,' ').replace(/^\s*(of|juice of|zest of)\s+/,' ');
+    return n.replace(/[^a-z ]+/g,' ').trim().split(/\s+/).filter(function(w){ return w.length>2; }).map(singular);
+  });
+  var count={};
+  names.forEach(function(ws){ ws.filter(function(w,j){ return ws.indexOf(w)===j; }).forEach(function(w){ count[w]=(count[w]||0)+1; }); });
+  var uses=[];
+  names.forEach(function(ws,i){
+    if (!ws.length) return;
+    var whole=ws.length>1?t.indexOf(' '+ws.slice(0,-1).join(' ')+' ')>=0&&has(ws[ws.length-1]):!STEP_ING_STOP.test(ws[0])&&has(ws[0]);
+    if (whole||ws.some(function(w){ return count[w]===1&&!STEP_ING_STOP.test(w)&&has(w); })) uses.push({i:i, part:1});
+  });
+  return uses;
+}
+function stepIngsHTML(d, s, srv){
+  var list=stepIngs(d,s,srv);
+  return list.length?'<div class="ck-uses">'+list.map(function(i){ return '<span>'+esc(i)+'</span>'; }).join('')+'</div>':'';
+}
 var DISH_LETTERS='ABCDEFGH';
 function dishTag(k){ return '<i class="ck-dish d'+(k%4)+'">'+DISH_LETTERS[k]+'</i>'; }
 
@@ -4459,7 +4498,7 @@ function renderCookMode(){
         +(!s.handsOn?'<span class="ck-tag off">hands-off</span>':'')
         +(cook.cooks>1&&r.cook>=0?'<span class="ck-tag">Cook '+(r.cook?'B':'A')+'</span>':'')
         +(waits.length?'<span>after step '+waits.join(', ')+'</span>':'')
-        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepTimerHTML(d,s.src,s.id)+'</div></div>';
+        +'</div><div class="ck-text">'+esc(s.text)+'</div>'+stepIngsHTML(d,s.src,srv)+stepTimerHTML(d,s.src,s.id)+'</div></div>';
     });
   }
   // Original directions: all dishes (toggle), or just the ones not optimized yet
@@ -4472,7 +4511,7 @@ function renderCookMode(){
       (d.steps||[]).forEach(function(s,i){
         var id='o'+k+'-'+i, done=!!cook.done[id];
         html+='<div class="ck-step'+(done?' done':'')+'" onclick="toggleCookStep(\''+id+'\')"><div class="ck-check">'+(done?'&#10003;':'')+'</div>'
-          +'<div style="flex:1"><div class="ck-meta"><strong>Step '+(i+1)+'</strong></div><div class="ck-text">'+esc(s)+'</div></div></div>';
+          +'<div style="flex:1"><div class="ck-meta"><strong>Step '+(i+1)+'</strong></div><div class="ck-text">'+esc(s)+'</div>'+stepIngsHTML(d,s,srv)+'</div></div>';
       });
     });
   }
