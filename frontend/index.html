@@ -159,11 +159,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 /* Cooking mode */
 body.cooking #app{display:none}
 .cook-mode{padding:0 16px 40px;min-height:100vh}
-.ck-head{position:sticky;top:0;z-index:5;background:var(--sand);padding:12px 0 10px;border-bottom:1px solid var(--sand-dark);margin-bottom:12px}
+.ck-head{position:sticky;top:0;z-index:5;background:var(--sand);padding:8px 0;border-bottom:1px solid var(--sand-dark)}
+.ck-head .ck-chips{margin-top:6px}
 .ck-head-row{display:flex;align-items:center;gap:10px}
 .ck-back{padding:6px 12px;border-radius:20px;border:1px solid var(--sand-dark);background:var(--white);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--ink-mid);cursor:pointer}
-.ck-title{font-family:'Lora',serif;font-size:19px;color:var(--ink);line-height:1.25;flex:1}
-.ck-sub{font-size:12px;color:var(--ink-light);margin-top:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ck-title{font-family:'Lora',serif;font-size:17px;color:var(--ink);line-height:1.25;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.ck-title.full{white-space:normal}
+.ck-sub{font-size:12px;color:var(--ink-light);margin:8px 0 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .ck-seg{display:inline-flex;border:1px solid var(--sand-dark);border-radius:20px;overflow:hidden}
 .ck-seg button{padding:4px 11px;border:none;background:var(--white);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--ink-mid);cursor:pointer}
 .ck-seg button.on{background:var(--sage);color:#fff}
@@ -4910,16 +4912,20 @@ function renderCookMode(){
   if(!t){ closeCookMode(); return; }
   var dishes=cookDishes(), multi=dishes.length>1, srv=cookServings();
   var steps=combinedSteps(), sched=steps.length?scheduleSteps(steps,cook.cooks):null;
+  // Only Back, the title (one line; tap for all of it) and running timers stay pinned,
+  // so the steps keep most of a phone screen; servings and cooks scroll away
+  var title=esc(cook.kind==='meal'?mealDisplayName(t):t.name);
   var html='<div class="ck-head"><div class="ck-head-row">'
     +'<button class="ck-back" onclick="closeCookMode()">&#8592; Back</button>'
-    +'<div class="ck-title">'+esc(cook.kind==='meal'?mealDisplayName(t):t.name)+'</div></div><div class="ck-sub"><span>'+srv+' serving'+(srv===1?'':'s')+'</span>';
+    +'<div class="ck-title'+(cook.fullTitle?' full':'')+'" title="'+title+'" onclick="cook.fullTitle=!cook.fullTitle;this.classList.toggle(\'full\')">'+title+'</div></div>'
+    +(timerChipsHTML()?'<div class="ck-chips">'+timerChipsHTML()+'</div>':'')
+    +'</div><div class="ck-sub"><span>'+srv+' serving'+(srv===1?'':'s')+'</span>';
   if(sched){
     var one=cook.cooks===1?sched:scheduleSteps(steps,1), two=cook.cooks===2?sched:scheduleSteps(steps,2);
     html+='<span>Ready in ~'+fmtMins(sched.total)+(two.total<one.total-1&&cook.cooks===1?' (~'+fmtMins(two.total)+' with 2 cooks)':'')+'</span>'
       +'<span class="ck-seg"><button class="'+(cook.cooks===1?'on':'')+'" onclick="setCooks(1)">1 cook</button><button class="'+(cook.cooks===2?'on':'')+'" onclick="setCooks(2)">2 cooks</button></span>';
   }
-  if(timerChipsHTML()) html+='<div class="ck-chips">'+timerChipsHTML()+'</div>';
-  html+='</div></div>';
+  html+='</div>';
   // Side column (ingredients, timeline) beside the steps on wide screens; stacked on phones
   html+='<div class="ck-cols"><div class="ck-side">';
 
