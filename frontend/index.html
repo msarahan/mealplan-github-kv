@@ -2663,7 +2663,9 @@ function scheduleGroceryRefresh(){
 // ── Plan KV ───────────────────────────────────────────────────────────────────
 async function pushPlan(plan){ if(householdCode) kvPut('/plan/'+householdCode,plan); }
 async function pullPlan(){
-  try{ var p=await kvGet('/plan/'+householdCode); if(p&&p.days){currentPlan=p;renderPlan(p);if(p.groceryList)renderGrocery();} }catch(e){}
+  try{ var p=await kvGet('/plan/'+householdCode); if(p&&p.days){currentPlan=p;
+    if(repairLeftovers(p)){ recomputeGroceryLocal(); pushPlan(p); }  // plans saved before leftovers were checked
+    renderPlan(p);if(p.groceryList)renderGrocery();} }catch(e){}
 }
 async function pullChecks(){
   try{
@@ -3255,6 +3257,7 @@ async function generatePlan() {
     var plan=fillFromLibrary(await callClaude(buildPrompt(),32000));  // a week's plan + thinking needs room
     applySwapsToPlan(plan);  // in case Claude didn't
     fitPlanToWeek(plan);  // the plan's week, whatever day names Claude used
+    repairLeftovers(plan,true);  // no leftover before its dinner; slots it can't fix are refilled
     markStepsPending(plan);  // steps are written when a meal is opened
     plan.prepDays=prepDays.slice();  // this plan's make-ahead days (from the New plan panel)
     currentPlan=plan; renderPlan(plan);
@@ -3415,6 +3418,52 @@ function emptySlot(plan,di,mi,refill) {
     });
   });
 }
+// Every leftover must come after the meal it's from. A leftover that comes too early
+// (Claude put it there, the freshness re-shuffle moved its dinner) trades places with a
+// lunch up to 3 days after that dinner: an empty slot, else one that isn't pinned or a
+// leftover. If there's none, or the meal isn't in the plan at all (a dinner dropped on
+// a no-dinner night), the slot is emptied (`refill`: marked for generatePlan to refill)
+// and the dinner no longer makes leftovers. Returns how many leftovers it changed.
+function repairLeftovers(plan,refill) {
+  var changed=0, days=plan.days||[];
+  var empty=function(type){ var p=placeholderMeal(type); if (refill) p._refill=true; return p; };
+  var sourcesOf=function(name){
+    var out=[];
+    days.forEach(function(d,di){ d.meals.forEach(function(m){ if (!m.isLeftover&&!m._placeholder&&m.name===name) out.push({di:di,meal:m}); }); });
+    return out;
+  };
+  for (var di=0;di<days.length;di++){
+    for (var mi=0;mi<days[di].meals.length;mi++){
+      var lo=days[di].meals[mi]; if (!lo.isLeftover) continue;
+      var name=lo.sourceDinner||lo.name, srcs=sourcesOf(name);
+      var before=srcs.filter(function(s){ return s.di<di; });
+      if (before.length){ before[before.length-1].meal.leftoversForLunch=true; continue; }
+      changed++;
+      var later=srcs[0], moved=false;
+      if (later){
+        // Where it can go: an empty slot first, then a lunch that can trade places
+        var spots=[];
+        for (var t=later.di+1;t<days.length&&t<=later.di+3;t++) days[t].meals.forEach(function(m,tmi){
+          if (m.type!==lo.type) return;
+          if (m._placeholder) spots.unshift({di:t,mi:tmi}); else if (!m.isLeftover&&!m.pinned) spots.push({di:t,mi:tmi});
+        });
+        if (spots.length){
+          var sp=spots[0];
+          days[di].meals[mi]=days[sp.di].meals[sp.mi];
+          days[sp.di].meals[sp.mi]=lo;
+          later.meal.leftoversForLunch=true; moved=true;
+          mi--;  // look again at what moved into this slot
+        }
+      }
+      if (!moved){
+        days[di].meals[mi]=empty(lo.type);
+        if (later&&!days.some(function(d,ddi){ return ddi>later.di&&d.meals.some(function(m){ return m.isLeftover&&(m.sourceDinner||m.name)===name; }); }))
+          later.meal.leftoversForLunch=false;
+      }
+    }
+  }
+  return changed;
+}
 function clearMeal(di,mi) {
   emptySlot(currentPlan,di,mi);
   refreshPlanLocal();
@@ -3462,10 +3511,10 @@ async function checkAndFixFreshness(plan) {
       var tmp=plan.days[fromDi].meals[fromMi];
       plan.days[fromDi].meals[fromMi]=plan.days[toDi].meals[toMi];
       plan.days[toDi].meals[toMi]=tmp;
-      syncLeftoverName(fromDi,fromMi); syncLeftoverName(toDi,toMi);
       fixed.push(swap.fromDay+' '+swap.fromType+' ↔ '+swap.toDay+' '+swap.toType);
     });
     if(fixed.length){
+      repairLeftovers(plan);  // a moved dinner's leftovers follow it
       renderPlan(plan);
       showToast('Reordered '+fixed.length+' meal'+(fixed.length!==1?'s':'')+' to keep batch-prepped ingredients fresh');
     }
@@ -3788,19 +3837,15 @@ function dayPrepBoxHTML(entries) {
 }
 
 // ── Leftover sync helper ──────────────────────────────────────────────────────
-function syncLeftoverName(di,mi){
+// A meal at (di,mi) replaced one called oldName: that meal's leftovers on later days
+// now come from the new one (other meals' leftovers are left alone)
+function syncLeftoverName(di,mi,oldName){
   var meal=currentPlan.days[di].meals[mi];
-  if(!meal.leftoversForLunch) return;
-  // Search all subsequent days for a leftover card sourced from the old name
+  if(!meal.leftoversForLunch||!oldName||oldName===meal.name) return;
   for(var sdi=di+1;sdi<currentPlan.days.length;sdi++){
-    var dayMeals=currentPlan.days[sdi].meals;
-    for(var nmi=0;nmi<dayMeals.length;nmi++){
-      if(dayMeals[nmi].isLeftover){
-        dayMeals[nmi].name=meal.name;
-        dayMeals[nmi].sourceDinner=meal.name;
-        return;
-      }
-    }
+    currentPlan.days[sdi].meals.forEach(function(m){
+      if(m.isLeftover&&(m.sourceDinner||m.name)===oldName){ m.name=meal.name; m.sourceDinner=meal.name; }
+    });
   }
 }
 
@@ -3844,7 +3889,7 @@ async function swapMeal(di,mi,btn,customPrompt){
     data.leftoversForLunch=meal.leftoversForLunch||false;
     if(mealSides(meal).length) data.sides=meal.sides;  // keep the sides when swapping the main
     currentPlan.days[di].meals[mi]=data;
-    syncLeftoverName(di,mi);
+    syncLeftoverName(di,mi,meal.name);
     var card=document.getElementById('meal-'+di+'-'+mi);
     var tmp=document.createElement('div'); tmp.innerHTML=buildMealCardHTML(di,mi,data);
     card.parentNode.replaceChild(tmp.firstChild,card);
@@ -4645,7 +4690,7 @@ function pinRecipe(recipeId){
     leftoversForLunch:existingMeal.leftoversForLunch||false,prepNote:null,batchNote:null
   };
   if(mealSides(existingMeal).length) currentPlan.days[di].meals[mi].sides=existingMeal.sides;  // swapping the main keeps its sides
-  syncLeftoverName(di,mi);
+  syncLeftoverName(di,mi,existingMeal.name);
   closePicker(); refreshPlanLocal();
 }
 function dishFromRecipe(r){
