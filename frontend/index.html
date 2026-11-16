@@ -3273,6 +3273,7 @@ async function generatePlan() {
     if(steps[1]) steps[1].classList.add('active');
     // The app builds the grocery list itself right away; Claude's tidier version
     // follows in the background instead of being another minute's wait
+    resetGroceryForNewPlan();
     plan.customItems=customItems;
     plan.groceryList=[];
     recomputeGroceryLocal();  // also fills in the summary
@@ -3372,6 +3373,14 @@ function renderDinnerDays(){
   row.innerHTML=html;
 }
 function placeholderMeal(type){ return {type:type,name:'',_placeholder:true}; }
+// A new plan starts a new shopping list: nothing is checked, and the items added by
+// hand that were bought (checked) go; the ones still unchecked carry over
+function resetGroceryForNewPlan() {
+  var kept=customItems.filter(function(i){ return !checkedItems.has(i.id); });
+  if (kept.length!==customItems.length){ customItems=kept; saveSettings(); }
+  checkedItems=new Set(); clearedItems=new Set();
+  if (householdCode) kvPut('/checks/'+householdCode, []);
+}
 function buildManualPlan() {
   if (currentPlan && currentPlan.days && currentPlan.days.length) {
     if (!confirm('Replace the current plan? The existing plan will be saved to history.')) return;
@@ -3387,7 +3396,8 @@ function buildManualPlan() {
   });
   currentPlan={summary:{}, days:days, groceryList:[], customItems:customItems, prepDays:prepDays.slice()};
   pinnedMeals={};
-  checkedItems=new Set(); clearedItems=new Set(); kvPut('/checks/'+householdCode, []);
+  resetGroceryForNewPlan();
+  currentPlan.customItems=customItems;
   refreshPlanLocal();
   switchTab('plan');
 }
