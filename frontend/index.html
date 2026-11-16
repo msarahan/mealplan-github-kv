@@ -2791,49 +2791,91 @@ async function callClaude(prompt, maxTokens) {
     system:'You are a JSON API. Output ONLY a raw JSON object. No markdown, no explanation, no preamble.',
     messages:[{role:'user',content:prompt}]};
   if (!isOnline()) throw new Error(OFFLINE_MSG);
-  var resp;
-  try {
-    if (WORKER_ON) { resp=await fetch(WORKER_URL+'/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
-    else { resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
-  } catch(e) { setOnline(false); throw new Error(OFFLINE_MSG); }
-  var data=await readJsonResponse(resp);
-  if (data.error) throw new Error(data.error.message||data.error);
-  if (data.stop_reason==='refusal') throw new Error('Claude declined this request');
-  // Out of room (thinking counts too): the JSON stops mid-way, so say that rather than
-  // report a parse error
-  if (data.stop_reason==='max_tokens') throw new Error('Claude’s reply was too long and got cut off. Please try again.');
-  var raw=data.content.map(function(b){return b.text||'';}).join('');
-  var s=raw.indexOf('{'),e=raw.lastIndexOf('}');
-  if(s===-1||e===-1) throw new Error('No JSON in response');
-  try { return parseLooseJson(raw.slice(s,e+1)); }
-  catch(err){ throw new Error('Claude sent back a reply the app couldn’t read ('+err.message+'). Please try again.'); }
+  // A reply that can't be read even after repairs is asked for once more: the slip
+  // (usually a fraction or an inch mark) rarely happens twice in a row
+  for (var attempt=1;;attempt++){
+    var resp;
+    try {
+      if (WORKER_ON) { resp=await fetch(WORKER_URL+'/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+      else { resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+    } catch(e) { setOnline(false); throw new Error(OFFLINE_MSG); }
+    var data=await readJsonResponse(resp);
+    if (data.error) throw new Error(data.error.message||data.error);
+    if (data.stop_reason==='refusal') throw new Error('Claude declined this request');
+    // Out of room (thinking counts too): the JSON stops mid-way, so say that rather than
+    // report a parse error
+    if (data.stop_reason==='max_tokens') throw new Error('Claude’s reply was too long and got cut off. Please try again.');
+    var raw=data.content.map(function(b){return b.text||'';}).join('');
+    var s=raw.indexOf('{'),e=raw.lastIndexOf('}');
+    try {
+      if(s===-1||e===-1) throw new Error('no JSON in the reply');
+      return parseLooseJson(raw.slice(s,e+1));
+    } catch(err){
+      console.warn('Unreadable Claude reply (attempt '+attempt+'):', err.message, raw);
+      if (attempt<2) continue;
+      throw new Error('Claude sent back a reply the app couldn’t read ('+err.message+'). Please try again.');
+    }
+  }
 }
 // Claude's JSON, with the usual slips repaired if it doesn't parse as is: a quote
-// inside a string ('1" piece ginger'), a trailing comma, a fraction as a number
-// ("protein": 42 1/2). The original error is reported if repairs don't help.
+// inside a string ('1" piece ginger'), a raw newline in a string, a trailing comma, a
+// fraction as a number ("protein": 42 1/2, "part": ½, [1/3, 2/3]). The original error
+// is reported if repairs don't help.
 function parseLooseJson(text){
   try { return JSON.parse(text); }
   catch(first){
-    var fixed=escapeStrayQuotes(text)
-      .replace(/,(\s*[\]}])/g,'$1')
-      .replace(/:\s*(\d+)\s+(\d+)\/(\d+)(?=\s*[,}\]])/g,function(_,w,n,d){ return ':'+(+w+n/d); })
-      .replace(/:\s*(\d+)\/(\d+)(?=\s*[,}\]])/g,function(_,n,d){ return ':'+(n/d); });
-    try { return JSON.parse(fixed); } catch(e){ throw first; }
+    try { return JSON.parse(repairJson(text)); } catch(e){ throw first; }
   }
 }
-// Inside a JSON string, a quote that isn't followed by , ] } or : can't be the end of
-// the string, so it's escaped; raw newlines in strings are escaped too
+function repairJson(text){
+  // Fix strings first, then repair only what's between them, so a fraction or ", ]"
+  // inside an ingredient's text is left alone
+  var s=escapeStrayQuotes(text), out='', bare='', inStr=false;
+  for (var i=0;i<s.length;i++){
+    var c=s.charAt(i);
+    if (inStr){
+      out+=c;
+      if (c==='\\'){ out+=s.charAt(i+1); i++; }
+      else if (c==='"') inStr=false;
+      continue;
+    }
+    if (c==='"'){ out+=repairBare(bare)+c; bare=''; inStr=true; continue; }
+    bare+=c;
+  }
+  return out+repairBare(bare);
+}
+var UNI_FRAC={'½':1/2,'⅓':1/3,'⅔':2/3,'¼':1/4,'¾':3/4,'⅕':1/5,'⅙':1/6,'⅛':1/8,'⅜':3/8,'⅝':5/8,'⅞':7/8};
+// JSON outside strings: fractions become decimals, trailing commas go
+function repairBare(t){
+  var num=function(v){ return isFinite(v)?String(v):'0'; };
+  return t
+    .replace(/(\d+)?\s*([½⅓⅔¼¾⅕⅙⅛⅜⅝⅞])/g,function(_,w,f){ return num((+w||0)+UNI_FRAC[f]); })
+    .replace(/(\d+(?:\.\d+)?)\s+(\d+)\s*\/\s*(\d+)/g,function(_,w,n,d){ return num(+w+n/d); })
+    .replace(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/g,function(_,n,d){ return num(n/d); })
+    .replace(/,(\s*[\]}])/g,'$1');
+}
+// Inside a JSON string, a quote can only end the string if what follows fits JSON:
+// ] or }, : and a value, or , and a value or key. Other quotes ('1" piece ginger',
+// 'a 12", thin crust') are escaped; raw newlines in strings are escaped too.
 function escapeStrayQuotes(s){
   var out='', inStr=false;
+  var valueAt=function(j){
+    while (j<s.length&&/\s/.test(s.charAt(j))) j++;
+    var r=s.slice(j);
+    return /^["{\[\-\d½⅓⅔¼¾⅕⅙⅛⅜⅝⅞]/.test(r)||/^(true|false|null)\b/.test(r);
+  };
   for (var i=0;i<s.length;i++){
     var c=s.charAt(i);
     if (!inStr){ if (c==='"') inStr=true; out+=c; continue; }
     if (c==='\\'){ out+=c+s.charAt(i+1); i++; continue; }
     if (c==='\n'){ out+='\\n'; continue; }
+    if (c==='\r'){ continue; }
+    if (c==='\t'){ out+='\\t'; continue; }
     if (c==='"'){
       var j=i+1; while (j<s.length&&/\s/.test(s.charAt(j))) j++;
       var next=s.charAt(j);
-      if (next===''||next===','||next===']'||next==='}'||next===':'){ inStr=false; out+=c; }
+      var ends=next===''||next===']'||next==='}'||((next===','||next===':')&&valueAt(j+1));
+      if (ends){ inStr=false; out+=c; }
       else out+='\\"';
       continue;
     }
